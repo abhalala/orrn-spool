@@ -519,7 +519,7 @@ curl http://localhost:8080/health
 
 MIT License
 
-Copyright (c) 2024 Orrn
+Copyright (c) 2026 ORRN.APP
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
