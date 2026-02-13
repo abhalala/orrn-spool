@@ -1,0 +1,470 @@
+{{ define "settings-general" }}
+<div class="space-y-6">
+  <div class="bg-white rounded-lg shadow-md p-6">
+    <h2 class="text-lg font-semibold text-gray-900 mb-4">Change Password</h2>
+    <form hx-post="/api/auth/change-password" 
+          hx-target="#password-result"
+          hx-swap="innerHTML"
+          class="space-y-4 max-w-md">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Current Password</label>
+        <input type="password" 
+               name="current_password" 
+               class="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+               required>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">New Password</label>
+        <input type="password" 
+               name="new_password" 
+               class="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+               required 
+               minlength="6">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Confirm New Password</label>
+        <input type="password" 
+               name="confirm_password" 
+               class="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+               required>
+      </div>
+      <div id="password-result"></div>
+      <button type="submit" 
+              class="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg font-medium transition-colors">
+        Update Password
+      </button>
+    </form>
+  </div>
+
+  <div class="bg-white rounded-lg shadow-md p-6">
+    <h2 class="text-lg font-semibold text-gray-900 mb-4">Server Configuration</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div>
+        <span class="text-sm text-gray-500">Port</span>
+        <p class="font-medium text-gray-900">{{ .Config.Server.Port }}</p>
+      </div>
+      <div>
+        <span class="text-sm text-gray-500">Database Path</span>
+        <p class="font-medium text-gray-900 truncate" title="{{ .Config.Database.Path }}">{{ .Config.Database.Path }}</p>
+      </div>
+      <div>
+        <span class="text-sm text-gray-500">Archive Path</span>
+        <p class="font-medium text-gray-900 truncate" title="{{ .Config.Archive.Path }}">{{ .Config.Archive.Path }}</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="bg-white rounded-lg shadow-md p-6">
+    <h2 class="text-lg font-semibold text-gray-900 mb-4">Danger Zone</h2>
+    <div class="flex items-center justify-between p-4 border border-red-200 rounded-lg bg-red-50">
+      <div>
+        <p class="font-medium text-red-800">Reset All Settings</p>
+        <p class="text-sm text-red-600">This will reset all settings to their default values.</p>
+      </div>
+      <button hx-post="/api/settings/reset"
+              hx-confirm="Are you sure you want to reset all settings? This cannot be undone."
+              class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-medium transition-colors">
+        Reset Settings
+      </button>
+    </div>
+  </div>
+</div>
+{{ end }}
+
+{{ define "settings-webhooks" }}
+<div class="space-y-4">
+  <div class="flex justify-between items-center">
+    <h2 class="text-lg font-semibold text-gray-900">Webhooks</h2>
+    <button hx-get="/settings/webhooks/add-modal" 
+            hx-target="#modal-container"
+            class="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg font-medium transition-colors">
+      + Add Webhook
+    </button>
+  </div>
+
+  <div class="bg-white rounded-lg shadow-md overflow-hidden">
+    {{ if .Webhooks }}
+    <table class="w-full">
+      <thead class="bg-gray-50 border-b border-gray-200">
+        <tr>
+          <th class="text-left p-3 text-sm font-medium text-gray-500 uppercase tracking-wider">Name</th>
+          <th class="text-left p-3 text-sm font-medium text-gray-500 uppercase tracking-wider">URL</th>
+          <th class="text-left p-3 text-sm font-medium text-gray-500 uppercase tracking-wider">Events</th>
+          <th class="text-left p-3 text-sm font-medium text-gray-500 uppercase tracking-wider">Status</th>
+          <th class="text-left p-3 text-sm font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-200">
+        {{ range .Webhooks }}
+        <tr class="hover:bg-gray-50">
+          <td class="p-3 font-medium text-gray-900">{{ .Name }}</td>
+          <td class="p-3 text-sm text-gray-500 truncate max-w-xs" title="{{ .URL }}">{{ .URL }}</td>
+          <td class="p-3">
+            <div class="flex flex-wrap gap-1">
+              {{ range .Events }}
+              <span class="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-xs">{{ . }}</span>
+              {{ end }}
+            </div>
+          </td>
+          <td class="p-3">
+            {{ if .Enabled }}
+            <span class="px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-medium">Enabled</span>
+            {{ else }}
+            <span class="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs font-medium">Disabled</span>
+            {{ end }}
+          </td>
+          <td class="p-3">
+            <div class="flex space-x-2">
+              <button hx-get="/settings/webhooks/{{ .ID }}/edit-modal" 
+                      hx-target="#modal-container"
+                      class="text-primary-600 hover:text-primary-700 text-sm font-medium">
+                Edit
+              </button>
+              <button hx-post="/api/webhooks/{{ .ID }}/test"
+                      hx-target="#webhook-test-result"
+                      class="text-blue-600 hover:text-blue-700 text-sm font-medium">
+                Test
+              </button>
+              <button hx-delete="/api/webhooks/{{ .ID }}"
+                      hx-confirm="Are you sure you want to delete this webhook?"
+                      class="text-red-600 hover:text-red-700 text-sm font-medium">
+                Delete
+              </button>
+            </div>
+          </td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+    {{ else }}
+    <div class="text-center py-12 text-gray-500">
+      <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+      </svg>
+      <p class="mt-2">No webhooks configured</p>
+      <button hx-get="/settings/webhooks/add-modal" 
+              hx-target="#modal-container"
+              class="mt-4 text-primary-600 hover:text-primary-700 font-medium">
+        Add your first webhook
+      </button>
+    </div>
+    {{ end }}
+  </div>
+  <div id="webhook-test-result"></div>
+</div>
+{{ end }}
+
+{{ define "settings-ai" }}
+<div class="bg-white rounded-lg shadow-md p-6 max-w-lg">
+  <h2 class="text-lg font-semibold text-gray-900 mb-4">AI Label Designer</h2>
+  <p class="text-sm text-gray-500 mb-6">
+    Configure Google Gemini AI for automated label design suggestions. Your API key is encrypted and stored securely.
+  </p>
+  <form hx-post="/api/settings/ai" 
+        hx-target="#ai-result"
+        hx-swap="innerHTML"
+        class="space-y-4">
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">Gemini API Key</label>
+      <div class="flex">
+        <input type="password" 
+               id="gemini-api-key"
+               name="gemini_api_key" 
+               value="{{ if .AIConfig.HasAPIKey }}••••••••••••••••{{ end }}"
+               placeholder="Enter your Gemini API key"
+               class="flex-1 border border-gray-300 rounded-l-lg p-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+        <button type="button" 
+                onclick="toggleApiKeyVisibility()"
+                class="border border-l-0 border-gray-300 rounded-r-lg px-3 bg-gray-50 hover:bg-gray-100 text-sm text-gray-600">
+          Show
+        </button>
+      </div>
+      <p class="mt-1 text-xs text-gray-500">Get your API key from <a href="https://aistudio.google.com/app/apikey" target="_blank" class="text-primary-600 hover:underline">Google AI Studio</a></p>
+    </div>
+    
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">Model</label>
+      <select name="ai_model" 
+              class="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+        <option value="gemini-2.0-flash" {{ if eq .AIConfig.Model "gemini-2.0-flash" }}selected{{ end }}>Gemini 2.0 Flash</option>
+        <option value="gemini-1.5-flash" {{ if eq .AIConfig.Model "gemini-1.5-flash" }}selected{{ end }}>Gemini 1.5 Flash</option>
+        <option value="gemini-1.5-pro" {{ if eq .AIConfig.Model "gemini-1.5-pro" }}selected{{ end }}>Gemini 1.5 Pro</option>
+      </select>
+    </div>
+
+    <div class="flex items-center">
+      <input type="checkbox" 
+             name="ai_enabled" 
+             id="ai-enabled"
+             {{ if .AIConfig.Enabled }}checked{{ end }}
+             class="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded">
+      <label for="ai-enabled" class="ml-2 text-sm text-gray-700">Enable AI Label Designer</label>
+    </div>
+
+    <div id="ai-result"></div>
+
+    <div class="flex space-x-2 pt-2">
+      <button type="submit" 
+              class="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg font-medium transition-colors">
+        Save Settings
+      </button>
+      <button type="button" 
+              hx-post="/api/settings/ai/test"
+              hx-target="#ai-result"
+              class="border border-gray-300 rounded-lg px-4 py-2 text-gray-700 hover:bg-gray-50 font-medium transition-colors">
+        Test Connection
+      </button>
+    </div>
+  </form>
+</div>
+
+<script>
+function toggleApiKeyVisibility() {
+  const input = document.getElementById('gemini-api-key');
+  const button = event.target;
+  if (input.type === 'password') {
+    input.type = 'text';
+    button.textContent = 'Hide';
+  } else {
+    input.type = 'password';
+    button.textContent = 'Show';
+  }
+}
+</script>
+{{ end }}
+
+{{ define "settings-archival" }}
+<div class="space-y-6">
+  <div class="bg-white rounded-lg shadow-md p-6">
+    <h2 class="text-lg font-semibold text-gray-900 mb-4">Archive Settings</h2>
+    <form hx-post="/api/settings/archival" 
+          hx-target="#archival-result"
+          hx-swap="innerHTML"
+          class="space-y-4 max-w-md">
+      <div class="flex items-center">
+        <input type="checkbox" 
+               name="archive_enabled" 
+               id="archive-enabled"
+               {{ if .ArchiveConfig.Enabled }}checked{{ end }}
+               class="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded">
+        <label for="archive-enabled" class="ml-2 text-sm text-gray-700">Enable Automatic Archival</label>
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Archive jobs older than (days)</label>
+        <input type="number" 
+               name="archive_after_days" 
+               value="{{ .ArchiveConfig.Days }}"
+               min="1"
+               max="365"
+               class="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Archive Path</label>
+        <input type="text" 
+               value="{{ .ArchiveConfig.Path }}"
+               disabled
+               class="w-full border border-gray-300 rounded-lg p-2 bg-gray-50 text-gray-500">
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Encryption Passphrase</label>
+        <div class="flex space-x-2">
+          <input type="password" 
+                 name="encryption_passphrase" 
+                 placeholder="{{ if .ArchiveConfig.HasPassphrase }}Enter new passphrase to change{{ else }}Set encryption passphrase{{ end }}"
+                 class="flex-1 border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+        </div>
+        <p class="mt-1 text-xs text-gray-500">Archives are encrypted using AES-256</p>
+      </div>
+
+      <div id="archival-result"></div>
+
+      <div class="flex space-x-2">
+        <button type="submit" 
+                class="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg font-medium transition-colors">
+          Save Settings
+        </button>
+        <button type="button" 
+                hx-post="/api/archival/run"
+                hx-target="#archival-result"
+                hx-confirm="Run archival now? This will archive all eligible jobs."
+                class="border border-gray-300 rounded-lg px-4 py-2 text-gray-700 hover:bg-gray-50 font-medium transition-colors">
+          Archive Now
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <div class="bg-white rounded-lg shadow-md p-6">
+    <div class="flex justify-between items-center mb-4">
+      <h2 class="text-lg font-semibold text-gray-900">Archive Files</h2>
+      <span class="text-sm text-gray-500">{{ len .Archives }} archives</span>
+    </div>
+
+    {{ if .Archives }}
+    <div class="space-y-2">
+      {{ range .Archives }}
+      <div class="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50">
+        <div class="flex items-center space-x-3">
+          <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>
+          </svg>
+          <div>
+            <p class="font-medium text-gray-900">{{ .Filename }}</p>
+            <p class="text-sm text-gray-500">{{ .Size }} • {{ .JobsCount }} jobs • {{ .CreatedAt.Format "2006-01-02 15:04" }}</p>
+          </div>
+        </div>
+        <div class="flex space-x-2">
+          <button hx-get="/api/archives/{{ .ID }}/download"
+                  class="text-primary-600 hover:text-primary-700 text-sm font-medium">
+            Download
+          </button>
+          <button hx-delete="/api/archives/{{ .ID }}"
+                  hx-confirm="Delete this archive? This cannot be undone."
+                  class="text-red-600 hover:text-red-700 text-sm font-medium">
+            Delete
+          </button>
+        </div>
+      </div>
+      {{ end }}
+    </div>
+    {{ else }}
+    <div class="text-center py-8 text-gray-500">
+      <svg class="mx-auto h-10 w-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>
+      </svg>
+      <p class="mt-2 text-sm">No archive files yet</p>
+    </div>
+    {{ end }}
+  </div>
+</div>
+{{ end }}
+
+{{ define "settings-audit" }}
+<div class="space-y-4">
+  <div class="bg-white rounded-lg shadow-md p-4">
+    <form hx-get="/settings/audit" 
+          hx-target="#audit-table"
+          hx-swap="outerHTML"
+          class="flex flex-wrap gap-4 items-end">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Action Type</label>
+        <select name="action" 
+                class="border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+          <option value="">All Actions</option>
+          <option value="create" {{ if eq .Filter.Action "create" }}selected{{ end }}>Create</option>
+          <option value="update" {{ if eq .Filter.Action "update" }}selected{{ end }}>Update</option>
+          <option value="delete" {{ if eq .Filter.Action "delete" }}selected{{ end }}>Delete</option>
+          <option value="print" {{ if eq .Filter.Action "print" }}selected{{ end }}>Print</option>
+          <option value="login" {{ if eq .Filter.Action "login" }}selected{{ end }}>Login</option>
+          <option value="logout" {{ if eq .Filter.Action "logout" }}selected{{ end }}>Logout</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Entity Type</label>
+        <select name="entity" 
+                class="border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+          <option value="">All Entities</option>
+          <option value="printer" {{ if eq .Filter.Entity "printer" }}selected{{ end }}>Printer</option>
+          <option value="job" {{ if eq .Filter.Entity "job" }}selected{{ end }}>Job</option>
+          <option value="webhook" {{ if eq .Filter.Entity "webhook" }}selected{{ end }}>Webhook</option>
+          <option value="user" {{ if eq .Filter.Entity "user" }}selected{{ end }}>User</option>
+          <option value="settings" {{ if eq .Filter.Entity "settings" }}selected{{ end }}>Settings</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">From Date</label>
+        <input type="date" 
+               name="from_date"
+               value="{{ .Filter.FromDate }}"
+               class="border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">To Date</label>
+        <input type="date" 
+               name="to_date"
+               value="{{ .Filter.ToDate }}"
+               class="border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+      </div>
+      <button type="submit" 
+              class="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg font-medium transition-colors">
+        Filter
+      </button>
+      <a href="/settings/audit" 
+         class="border border-gray-300 rounded-lg px-4 py-2 text-gray-700 hover:bg-gray-50 font-medium transition-colors">
+        Clear
+      </a>
+    </form>
+  </div>
+
+  <div id="audit-table" class="bg-white rounded-lg shadow-md overflow-hidden">
+    {{ if .AuditLogs }}
+    <table class="w-full">
+      <thead class="bg-gray-50 border-b border-gray-200">
+        <tr>
+          <th class="text-left p-3 text-sm font-medium text-gray-500 uppercase tracking-wider">Timestamp</th>
+          <th class="text-left p-3 text-sm font-medium text-gray-500 uppercase tracking-wider">Action</th>
+          <th class="text-left p-3 text-sm font-medium text-gray-500 uppercase tracking-wider">Entity</th>
+          <th class="text-left p-3 text-sm font-medium text-gray-500 uppercase tracking-wider">IP Address</th>
+          <th class="text-left p-3 text-sm font-medium text-gray-500 uppercase tracking-wider">Details</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-200">
+        {{ range .AuditLogs }}
+        <tr class="hover:bg-gray-50">
+          <td class="p-3 text-sm text-gray-900 whitespace-nowrap">
+            {{ .Timestamp.Format "2006-01-02 15:04:05" }}
+          </td>
+          <td class="p-3">
+            <span class="px-2 py-1 rounded text-xs font-medium
+              {{ if eq .Action "create" }}bg-green-100 text-green-800
+              {{ else if eq .Action "update" }}bg-blue-100 text-blue-800
+              {{ else if eq .Action "delete" }}bg-red-100 text-red-800
+              {{ else if eq .Action "print" }}bg-purple-100 text-purple-800
+              {{ else if eq .Action "login" }}bg-yellow-100 text-yellow-800
+              {{ else if eq .Action "logout" }}bg-gray-100 text-gray-800
+              {{ else }}bg-gray-100 text-gray-800{{ end }}">
+              {{ .Action | title }}
+            </span>
+          </td>
+          <td class="p-3 text-sm">
+            <span class="text-gray-500">{{ .EntityType }}</span>
+            {{ if .EntityID }}<span class="text-gray-900 ml-1">#{{ .EntityID }}</span>{{ end }}
+          </td>
+          <td class="p-3 text-sm text-gray-500">{{ .IPAddress }}</td>
+          <td class="p-3">
+            {{ if .Details }}
+            <button @click="openDetails = openDetails === {{ .ID }} ? null : {{ .ID }}"
+                    class="text-primary-600 hover:text-primary-700 text-sm font-medium">
+              View Details
+            </button>
+            {{ end }}
+          </td>
+        </tr>
+        {{ if .Details }}
+        <tr x-show="openDetails === {{ .ID }}" x-cloak class="bg-gray-50">
+          <td colspan="5" class="p-3">
+            <pre class="text-xs text-gray-700 bg-gray-100 p-2 rounded overflow-x-auto">{{ .DetailsJSON }}</pre>
+          </td>
+        </tr>
+        {{ end }}
+        {{ end }}
+      </tbody>
+    </table>
+    {{ else }}
+    <div class="text-center py-12 text-gray-500">
+      <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+      </svg>
+      <p class="mt-2">No audit log entries found</p>
+    </div>
+    {{ end }}
+  </div>
+
+  {{ if .Pagination }}
+  {{ template "pagination" .Pagination }}
+  {{ end }}
+</div>
+{{ end }}

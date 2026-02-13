@@ -1,0 +1,53 @@
+{{ define "content" }}
+<div class="space-y-6" x-data="{ activeTab: 'general' }">
+  <h1 class="text-2xl font-bold text-gray-900">Settings</h1>
+
+  <div class="border-b border-gray-200">
+    <nav class="flex space-x-4" role="tablist">
+      <button @click="activeTab = 'general'" 
+              :class="activeTab === 'general' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
+              class="px-4 py-2 border-b-2 font-medium text-sm transition-colors">
+        General
+      </button>
+      <button @click="activeTab = 'webhooks'" 
+              :class="activeTab === 'webhooks' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
+              class="px-4 py-2 border-b-2 font-medium text-sm transition-colors">
+        Webhooks
+      </button>
+      <button @click="activeTab = 'ai'" 
+              :class="activeTab === 'ai' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
+              class="px-4 py-2 border-b-2 font-medium text-sm transition-colors">
+        AI Settings
+      </button>
+      <button @click="activeTab = 'archival'" 
+              :class="activeTab === 'archival' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
+              class="px-4 py-2 border-b-2 font-medium text-sm transition-colors">
+        Archival
+      </button>
+      <button @click="activeTab = 'audit'" 
+              :class="activeTab === 'audit' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
+              class="px-4 py-2 border-b-2 font-medium text-sm transition-colors">
+        Audit Log
+      </button>
+    </nav>
+  </div>
+
+  <div id="tab-content">
+    <div x-show="activeTab === 'general'" x-cloak>
+      {{ template "settings-general" . }}
+    </div>
+    <div x-show="activeTab === 'webhooks'" x-cloak>
+      {{ template "settings-webhooks" . }}
+    </div>
+    <div x-show="activeTab === 'ai'" x-cloak>
+      {{ template "settings-ai" . }}
+    </div>
+    <div x-show="activeTab === 'archival'" x-cloak>
+      {{ template "settings-archival" . }}
+    </div>
+    <div x-show="activeTab === 'audit'" x-cloak>
+      {{ template "settings-audit" . }}
+    </div>
+  </div>
+</div>
+{{ end }}

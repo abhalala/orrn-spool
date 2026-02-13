@@ -1,0 +1,23 @@
+server:
+  port: 8080
+  read_timeout: 30s
+  write_timeout: 30s
+
+database:
+  path: ./data/spool.db
+  archive_path: ./data/archives
+  archive_days: 30
+
+printers:
+  health_check_interval: 30s
+  connection_timeout: 10s
+  status_poll_interval: 5s
+
+queue:
+  max_retries: 3
+  retry_delay: 10s
+  worker_count: 2
+
+logging:
+  level: info
+  format: json

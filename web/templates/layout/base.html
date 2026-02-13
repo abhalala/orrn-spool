@@ -1,0 +1,60 @@
+{{ define "base" }}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ .Title }} | TSC Spool</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: {
+              50: '#eff6ff',
+              100: '#dbeafe',
+              500: '#3b82f6',
+              600: '#2563eb',
+              700: '#1d4ed8',
+            },
+            success: '#10b981',
+            warning: '#f59e0b',
+            danger: '#ef4444',
+          }
+        }
+      }
+    }
+  </script>
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <link rel="stylesheet" href="/static/css/custom.css">
+</head>
+<body class="bg-gray-100" x-data="{ sidebarOpen: true }">
+  {{ template "sidebar" . }}
+  
+  <main class="ml-64 p-6 min-h-screen transition-all duration-300" :class="{ 'ml-64': sidebarOpen, 'ml-0': !sidebarOpen }">
+    {{ template "content" . }}
+  </main>
+  
+  {{ template "toasts" . }}
+  
+  <div id="modal-container"></div>
+  
+  <script>
+    document.body.addEventListener('htmx:configRequest', function(evt) {
+      evt.detail.headers['X-Requested-With'] = 'XMLHttpRequest';
+    });
+    
+    function checkAuth() {
+      const isAuthenticated = document.body.dataset.authenticated === 'true';
+      if (!isAuthenticated && !window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login';
+      }
+    }
+    
+    document.addEventListener('DOMContentLoaded', checkAuth);
+  </script>
+</body>
+</html>
+{{ end }}

@@ -1,0 +1,98 @@
+{{ define "content" }}
+<div class="space-y-6">
+  <div class="flex justify-between items-center">
+    <h1 class="text-2xl font-bold text-gray-900">Printers</h1>
+    <button hx-get="/printers/add-modal" 
+            hx-target="#modal-container"
+            class="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg font-medium transition-colors">
+      + Add Printer
+    </button>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="printer-grid" hx-trigger="every 30s, printer-updated from:body" hx-get="/api/printers/grid" hx-swap="innerHTML">
+    {{ range .Printers }}
+    <div class="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow p-4 printer-card cursor-pointer" 
+         data-printer-id="{{ .ID }}"
+         hx-get="/printers/{{ .ID }}/details"
+         hx-target="#printer-detail-{{ .ID }}"
+         hx-swap="outerHTML">
+      <div class="flex justify-between items-start mb-3">
+        <div>
+          <h3 class="text-lg font-semibold text-gray-900 editable-name" data-printer-id="{{ .ID }}">{{ .Name }}</h3>
+          <p class="text-sm text-gray-500">{{ .IPAddress }}:{{ .Port }}</p>
+        </div>
+        <div class="flex items-center space-x-2">
+          <span class="px-2 py-1 text-xs font-medium rounded bg-gray-100 text-gray-700">{{ .DPI }} DPI</span>
+          <span class="status-badge px-2 py-1 text-xs font-medium rounded {{ if eq .Status "online" }}bg-green-100 text-green-800{{ else if eq .Status "offline" }}bg-red-100 text-red-800{{ else if eq .Status "paused" }}bg-yellow-100 text-yellow-800{{ else }}bg-red-100 text-red-800{{ end }}">
+            {{ if eq .Status "error" }}<span class="mr-1">!</span>{{ end }}{{ .Status | title }}
+          </span>
+        </div>
+      </div>
+      
+      <div class="flex items-center space-x-4 text-sm text-gray-600 mb-3">
+        <span class="flex items-center">
+          <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/>
+          </svg>
+          {{ .LabelWidth }}x{{ .LabelHeight }}mm
+        </span>
+        <span>Gap: {{ .Gap }}mm</span>
+      </div>
+      
+      <div class="flex justify-between items-center text-xs text-gray-500 mb-4">
+        <span>Last seen: {{ if .LastSeen }}{{ .LastSeen.Format "2006-01-02 15:04" }}{{ else }}Never{{ end }}</span>
+        <span class="font-medium text-gray-700">{{ .TotalPrints }} prints</span>
+      </div>
+      
+      <div class="flex justify-end space-x-2 border-t pt-3" onclick="event.stopPropagation()">
+        <button hx-get="/printers/{{ .ID }}/edit-modal"
+                hx-target="#modal-container"
+                class="text-gray-600 hover:text-primary-600 px-2 py-1 text-sm font-medium transition-colors">
+          Edit
+        </button>
+        {{ if eq .Status "paused" }}
+        <button hx-post="/api/printers/{{ .ID }}/resume"
+                hx-target="#printer-grid"
+                class="text-green-600 hover:text-green-700 px-2 py-1 text-sm font-medium transition-colors">
+          Resume
+        </button>
+        {{ else }}
+        <button hx-post="/api/printers/{{ .ID }}/pause"
+                hx-target="#printer-grid"
+                class="text-yellow-600 hover:text-yellow-700 px-2 py-1 text-sm font-medium transition-colors">
+          Pause
+        </button>
+        {{ end }}
+        <button hx-get="/printers/{{ .ID }}/test-modal"
+                hx-target="#modal-container"
+                class="text-blue-600 hover:text-blue-700 px-2 py-1 text-sm font-medium transition-colors">
+          Test
+        </button>
+        <button hx-delete="/api/printers/{{ .ID }}"
+                hx-target="#printer-grid"
+                hx-confirm="Are you sure you want to delete this printer?"
+                class="text-red-600 hover:text-red-700 px-2 py-1 text-sm font-medium transition-colors">
+          Delete
+        </button>
+      </div>
+    </div>
+    {{ else }}
+    <div class="col-span-full text-center py-12 text-gray-500">
+      <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
+      </svg>
+      <p class="mt-2">No printers configured</p>
+      <button hx-get="/printers/add-modal" 
+              hx-target="#modal-container"
+              class="mt-4 text-primary-600 hover:text-primary-700 font-medium">
+        Add your first printer
+      </button>
+    </div>
+    {{ end }}
+  </div>
+
+  <div id="printer-detail-container"></div>
+</div>
+
+<div id="modal-container"></div>
+{{ end }}

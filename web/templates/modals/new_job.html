@@ -1,0 +1,358 @@
+<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+     x-data="newJobModal()"
+     x-init="init()"
+     @keydown.escape.window="closeModal()">
+  <div class="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto"
+       @click.stop>
+    <div class="p-4 border-b flex justify-between items-center sticky top-0 bg-white z-10">
+      <h3 class="text-lg font-semibold text-gray-900">New Print Job</h3>
+      <button @click="closeModal()" class="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    
+    <form @submit.prevent="submitJob()" class="p-4">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Printer <span class="text-red-500">*</span>
+            </label>
+            <select x-model="form.printerId" 
+                    @change="loadTemplates()"
+                    required
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-primary-500 focus:border-primary-500">
+              <option value="">Select a printer...</option>
+              <template x-for="printer in printers" :key="printer.id">
+                <option :value="printer.id" :disabled="printer.status !== 'online'">
+                  <span x-text="printer.name"></span>
+                  <span x-text="printer.status === 'online' ? '(Online)' : '(' + printer.status + ')'" :class="printer.status === 'online' ? 'text-green-600' : 'text-gray-400'"></span>
+                </option>
+              </template>
+            </select>
+            <p x-show="selectedPrinter && selectedPrinter.status !== 'online'" 
+               class="mt-1 text-sm text-yellow-600">
+              Warning: Selected printer is currently {{ selectedPrinter?.status }}
+            </p>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Template <span class="text-red-500">*</span>
+            </label>
+            <select x-model="form.templateId" 
+                    @change="loadTemplateSchema()"
+                    :disabled="!form.printerId"
+                    required
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-primary-500 focus:border-primary-500">
+              <option value="">Select a template...</option>
+              <template x-for="template in templates" :key="template.id">
+                <option :value="template.id" x-text="template.name"></option>
+              </template>
+            </select>
+          </div>
+
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Copies</label>
+              <input type="number" 
+                     x-model="form.copies"
+                     min="1" 
+                     max="1000"
+                     required
+                     class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-primary-500 focus:border-primary-500">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+              <input type="number" 
+                     x-model="form.priority"
+                     min="0" 
+                     max="100"
+                     class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-primary-500 focus:border-primary-500">
+              <p class="mt-1 text-xs text-gray-500">Higher priority jobs print first</p>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Variables</label>
+            <div x-show="!form.templateId" class="text-sm text-gray-500 py-4 text-center border-2 border-dashed border-gray-200 rounded-lg">
+              Select a template to configure variables
+            </div>
+            <div x-show="form.templateId && variableSchema.length === 0" class="text-sm text-gray-500 py-4 text-center border-2 border-dashed border-gray-200 rounded-lg">
+              This template has no configurable variables
+            </div>
+            <div x-show="variableSchema.length > 0" class="space-y-3">
+              <template x-for="variable in variableSchema" :key="variable.name">
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">
+                    <span x-text="variable.label || variable.name"></span>
+                    <span x-show="variable.required" class="text-red-500">*</span>
+                  </label>
+                  
+                  <input x-show="variable.type === 'text' || variable.type === 'string'" 
+                         type="text"
+                         :required="variable.required"
+                         x-model="form.variables[variable.name]"
+                         :placeholder="variable.default || ''"
+                         @input="updatePreview()"
+                         class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-primary-500 focus:border-primary-500">
+                  
+                  <input x-show="variable.type === 'number' || variable.type === 'integer'" 
+                         type="number"
+                         :required="variable.required"
+                         x-model="form.variables[variable.name]"
+                         :placeholder="variable.default || ''"
+                         @input="updatePreview()"
+                         class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-primary-500 focus:border-primary-500">
+                  
+                  <textarea x-show="variable.type === 'textarea' || variable.type === 'multiline'" 
+                            :required="variable.required"
+                            x-model="form.variables[variable.name]"
+                            :placeholder="variable.default || ''"
+                            @input="updatePreview()"
+                            rows="3"
+                            class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-primary-500 focus:border-primary-500"></textarea>
+                  
+                  <select x-show="variable.type === 'select' || variable.type === 'enum'"
+                          :required="variable.required"
+                          x-model="form.variables[variable.name]"
+                          @change="updatePreview()"
+                          class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-primary-500 focus:border-primary-500">
+                    <option value="">Select...</option>
+                    <template x-for="option in variable.options" :key="option">
+                      <option :value="option" x-text="option"></option>
+                    </template>
+                  </select>
+                  
+                  <input x-show="variable.type === 'checkbox' || variable.type === 'boolean'" 
+                         type="checkbox"
+                         x-model="form.variables[variable.name]"
+                         @change="updatePreview()"
+                         class="rounded border-gray-300 text-primary-600 focus:ring-primary-500">
+                  
+                  <p x-show="variable.description" class="mt-1 text-xs text-gray-500" x-text="variable.description"></p>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+
+        <div class="space-y-4">
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <label class="block text-sm font-medium text-gray-700">TSPL2 Preview</label>
+              <button type="button"
+                      @click="updatePreview()"
+                      :disabled="!form.templateId"
+                      class="text-xs text-primary-600 hover:text-primary-700 disabled:text-gray-400">
+                Refresh Preview
+              </button>
+            </div>
+            <div class="bg-gray-900 rounded-lg p-4 h-80 overflow-auto">
+              <pre x-show="previewContent" class="text-xs text-green-400 font-mono whitespace-pre-wrap" x-text="previewContent"></pre>
+              <div x-show="!previewContent" class="text-gray-500 text-sm text-center py-8">
+                <svg class="mx-auto h-12 w-12 text-gray-600 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+                <p>Select printer and template to see preview</p>
+              </div>
+            </div>
+          </div>
+
+          <div x-show="form.templateId" class="bg-gray-50 rounded-lg p-4">
+            <h4 class="text-sm font-medium text-gray-700 mb-2">Template Info</h4>
+            <div class="grid grid-cols-2 gap-2 text-sm">
+              <div>
+                <span class="text-gray-500">Label Size:</span>
+                <span x-text="templateInfo?.label_width + 'x' + templateInfo?.label_height + 'mm'"></span>
+              </div>
+              <div>
+                <span class="text-gray-500">DPI:</span>
+                <span x-text="templateInfo?.dpi"></span>
+              </div>
+              <div>
+                <span class="text-gray-500">Gap:</span>
+                <span x-text="templateInfo?.gap + 'mm'"></span>
+              </div>
+              <div>
+                <span class="text-gray-500">Variables:</span>
+                <span x-text="variableSchema.length"></span>
+              </div>
+            </div>
+          </div>
+
+          <div x-show="previewLoading" class="flex items-center justify-center py-4">
+            <svg class="animate-spin h-5 w-5 text-primary-600" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span class="ml-2 text-sm text-gray-500">Generating preview...</span>
+          </div>
+        </div>
+      </div>
+
+      <div x-show="errorMessage" class="mt-4 bg-red-50 border border-red-200 rounded-lg p-3">
+        <p class="text-red-700 text-sm" x-text="errorMessage"></p>
+      </div>
+
+      <div class="mt-6 pt-4 border-t flex justify-end space-x-3">
+        <button type="button"
+                @click="closeModal()"
+                class="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-100 transition-colors">
+          Cancel
+        </button>
+        <button type="submit"
+                :disabled="submitting || !form.printerId || !form.templateId"
+                :class="submitting || !form.printerId || !form.templateId ? 'opacity-50 cursor-not-allowed' : ''"
+                class="bg-primary-600 hover:bg-primary-700 text-white px-6 py-2 rounded-lg font-medium transition-colors flex items-center">
+          <svg x-show="submitting" class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <span x-text="submitting ? 'Creating...' : 'Create Job'"></span>
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function newJobModal() {
+  return {
+    printers: [],
+    templates: [],
+    variableSchema: [],
+    templateInfo: null,
+    previewContent: '',
+    previewLoading: false,
+    submitting: false,
+    errorMessage: '',
+    form: {
+      printerId: '',
+      templateId: '',
+      copies: 1,
+      priority: 0,
+      variables: {}
+    },
+    get selectedPrinter() {
+      return this.printers.find(p => p.id == this.form.printerId);
+    },
+    async init() {
+      await this.loadPrinters();
+    },
+    async loadPrinters() {
+      try {
+        const response = await fetch('/api/printers');
+        const data = await response.json();
+        this.printers = data.printers || data || [];
+      } catch (e) {
+        console.error('Failed to load printers:', e);
+      }
+    },
+    async loadTemplates() {
+      if (!this.form.printerId) {
+        this.templates = [];
+        return;
+      }
+      try {
+        const response = await fetch('/api/templates');
+        const data = await response.json();
+        this.templates = data.templates || data || [];
+      } catch (e) {
+        console.error('Failed to load templates:', e);
+      }
+    },
+    async loadTemplateSchema() {
+      if (!this.form.templateId) {
+        this.variableSchema = [];
+        this.templateInfo = null;
+        this.previewContent = '';
+        return;
+      }
+      
+      try {
+        const response = await fetch(`/api/templates/${this.form.templateId}`);
+        const data = await response.json();
+        this.variableSchema = data.variables || [];
+        this.templateInfo = data.template || data;
+        
+        this.form.variables = {};
+        this.variableSchema.forEach(v => {
+          if (v.default) {
+            this.form.variables[v.name] = v.default;
+          }
+        });
+        
+        this.updatePreview();
+      } catch (e) {
+        console.error('Failed to load template schema:', e);
+      }
+    },
+    async updatePreview() {
+      if (!this.form.templateId) return;
+      
+      this.previewLoading = true;
+      this.errorMessage = '';
+      
+      try {
+        const response = await fetch(`/api/templates/${this.form.templateId}/preview`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ variables: this.form.variables })
+        });
+        
+        if (!response.ok) throw new Error('Preview failed');
+        
+        const data = await response.json();
+        this.previewContent = data.tspl || data.preview || '';
+      } catch (e) {
+        console.error('Preview error:', e);
+        this.errorMessage = 'Failed to generate preview';
+      } finally {
+        this.previewLoading = false;
+      }
+    },
+    async submitJob() {
+      if (!this.form.printerId || !this.form.templateId) return;
+      
+      this.submitting = true;
+      this.errorMessage = '';
+      
+      try {
+        const response = await fetch('/api/jobs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            printer_id: parseInt(this.form.printerId),
+            template_id: parseInt(this.form.templateId),
+            copies: parseInt(this.form.copies),
+            priority: parseInt(this.form.priority),
+            variables: this.form.variables
+          })
+        });
+        
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to create job');
+        }
+        
+        const result = await response.json();
+        this.closeModal();
+        htmx.trigger('#queue-content', 'queue-updated');
+        document.body.dispatchEvent(new CustomEvent('toast', { 
+          detail: { type: 'success', message: `Job #${result.job_id || result.id} created successfully` }
+        }));
+      } catch (e) {
+        this.errorMessage = e.message;
+      } finally {
+        this.submitting = false;
+      }
+    },
+    closeModal() {
+      this.$el.remove();
+    }
+  }
+}
+</script>

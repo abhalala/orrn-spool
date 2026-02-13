@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  spool:
+    build: .
+    image: orrn/spool:latest
+    container_name: tsc-spool
+    restart: unless-stopped
+    ports:
+      - "${SPOOL_PORT:-8080}:8080"
+    volumes:
+      - spool-data:/app/data
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      - SPOOL_PORT=${SPOOL_PORT:-8080}
+      - SPOOL_DB_PATH=/app/data/spool.db
+      - SPOOL_ARCHIVE_PATH=/app/data/archives
+      - SPOOL_LOG_LEVEL=${SPOOL_LOG_LEVEL:-info}
+      - TZ=${TZ:-UTC}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  spool-data:

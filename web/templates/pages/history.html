@@ -1,0 +1,370 @@
+{{ define "content" }}
+<div class="space-y-6" x-data="historyPage()">
+  <div class="flex justify-between items-center">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-900">Job History</h1>
+      <p class="text-sm text-gray-500 mt-1">View and manage completed print jobs</p>
+    </div>
+    <div class="flex items-center space-x-2">
+      <button @click="exportCSV()" 
+              class="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg font-medium transition-colors hover:bg-gray-50 flex items-center">
+        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+        </svg>
+        Export CSV
+      </button>
+      <button @click="reprintSelected()" 
+              :disabled="selectedJobs.length === 0"
+              :class="selectedJobs.length === 0 ? 'opacity-50 cursor-not-allowed' : ''"
+              class="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center">
+        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+        </svg>
+        Reprint Selected (<span x-text="selectedJobs.length"></span>)
+      </button>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+    <div class="lg:col-span-3 space-y-4">
+      <div class="bg-white rounded-lg shadow p-4">
+        <div class="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Printer</label>
+            <select x-model="filters.printer" 
+                    @change="applyFilters()"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-primary-500 focus:border-primary-500">
+              <option value="">All Printers</option>
+              {{ range .Printers }}
+              <option value="{{ .ID }}">{{ .Name }}</option>
+              {{ end }}
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+            <select x-model="filters.status" 
+                    @change="applyFilters()"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-primary-500 focus:border-primary-500">
+              <option value="">All Status</option>
+              <option value="completed">Completed</option>
+              <option value="failed">Failed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">From Date</label>
+            <input type="date" 
+                   x-model="filters.dateFrom"
+                   @change="applyFilters()"
+                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-primary-500 focus:border-primary-500">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">To Date</label>
+            <input type="date" 
+                   x-model="filters.dateTo"
+                   @change="applyFilters()"
+                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-primary-500 focus:border-primary-500">
+          </div>
+          <div class="flex space-x-2">
+            <input type="text" 
+                   x-model="filters.search"
+                   @input.debounce.500ms="applyFilters()"
+                   placeholder="Search ID or variables..."
+                   class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-primary-500 focus:border-primary-500">
+            <button @click="clearFilters()" 
+                    class="px-3 py-2 text-gray-500 hover:text-gray-700 border border-gray-300 rounded-lg">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-lg shadow overflow-hidden">
+        <div id="history-table" 
+             hx-trigger="filters-changed from:body" 
+             hx-get="/api/jobs/history-table" 
+             hx-swap="innerHTML"
+             hx-include="[name='filter-fields']">
+          {{ template "history-table" . }}
+        </div>
+      </div>
+    </div>
+
+    <div class="space-y-4">
+      <div class="bg-white rounded-lg shadow p-4">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Statistics</h3>
+        <div class="space-y-4">
+          <div>
+            <p class="text-sm text-gray-500">Success Rate (Today)</p>
+            <div class="mt-1 flex items-center">
+              <div class="flex-1 bg-gray-200 rounded-full h-2">
+                <div class="bg-green-500 h-2 rounded-full" style="width: {{ .Stats.TodaySuccessRate }}%"></div>
+              </div>
+              <span class="ml-2 text-sm font-medium text-gray-700">{{ printf "%.1f" .Stats.TodaySuccessRate }}%</span>
+            </div>
+          </div>
+          <div>
+            <p class="text-sm text-gray-500">Success Rate (This Week)</p>
+            <div class="mt-1 flex items-center">
+              <div class="flex-1 bg-gray-200 rounded-full h-2">
+                <div class="bg-green-500 h-2 rounded-full" style="width: {{ .Stats.WeekSuccessRate }}%"></div>
+              </div>
+              <span class="ml-2 text-sm font-medium text-gray-700">{{ printf "%.1f" .Stats.WeekSuccessRate }}%</span>
+            </div>
+          </div>
+          <div>
+            <p class="text-sm text-gray-500">Success Rate (This Month)</p>
+            <div class="mt-1 flex items-center">
+              <div class="flex-1 bg-gray-200 rounded-full h-2">
+                <div class="bg-green-500 h-2 rounded-full" style="width: {{ .Stats.MonthSuccessRate }}%"></div>
+              </div>
+              <span class="ml-2 text-sm font-medium text-gray-700">{{ printf "%.1f" .Stats.MonthSuccessRate }}%</span>
+            </div>
+          </div>
+          <div class="border-t pt-4">
+            <p class="text-sm text-gray-500">Avg Processing Time</p>
+            <p class="text-2xl font-semibold text-gray-900">{{ .Stats.AvgProcessingTime }}ms</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-lg shadow p-4">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Jobs by Printer</h3>
+        <div class="space-y-3">
+          {{ range .Stats.PrinterStats }}
+          <div class="flex items-center justify-between">
+            <span class="text-sm text-gray-600">{{ .PrinterName }}</span>
+            <div class="flex items-center">
+              <div class="w-24 bg-gray-200 rounded-full h-2 mr-2">
+                <div class="bg-primary-500 h-2 rounded-full" style="width: {{ .Percentage }}%"></div>
+              </div>
+              <span class="text-sm font-medium text-gray-700">{{ .Count }}</span>
+            </div>
+          </div>
+          {{ else }}
+          <p class="text-sm text-gray-500">No data available</p>
+          {{ end }}
+        </div>
+        <div class="mt-4 p-8 border-2 border-dashed border-gray-200 rounded-lg text-center text-gray-400">
+          <svg class="mx-auto h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z"/>
+          </svg>
+          <p class="text-xs mt-1">Pie chart placeholder</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{{ define "history-table" }}
+<div class="overflow-x-auto">
+  <table class="min-w-full divide-y divide-gray-200">
+    <thead class="bg-gray-50">
+      <tr>
+        <th class="px-4 py-3 text-left">
+          <input type="checkbox" 
+                 x-model="selectAll"
+                 @change="toggleSelectAll()"
+                 class="rounded border-gray-300 text-primary-600 focus:ring-primary-500">
+        </th>
+        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+            @click="sortBy('id')">
+          ID
+          <span x-show="sortField === 'id'" x-text="sortDir === 'asc' ? '↑' : '↓'"></span>
+        </th>
+        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+            @click="sortBy('printer')">
+          Printer
+          <span x-show="sortField === 'printer'" x-text="sortDir === 'asc' ? '↑' : '↓'"></span>
+        </th>
+        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+            @click="sortBy('template')">
+          Template
+          <span x-show="sortField === 'template'" x-text="sortDir === 'asc' ? '↑' : '↓'"></span>
+        </th>
+        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+          Status
+        </th>
+        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+            @click="sortBy('submitted')">
+          Submitted
+          <span x-show="sortField === 'submitted'" x-text="sortDir === 'asc' ? '↑' : '↓'"></span>
+        </th>
+        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+            @click="sortBy('duration')">
+          Duration
+          <span x-show="sortField === 'duration'" x-text="sortDir === 'asc' ? '↑' : '↓'"></span>
+        </th>
+        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+          Actions
+        </th>
+      </tr>
+    </thead>
+    <tbody class="bg-white divide-y divide-gray-200">
+      {{ range .Jobs }}
+      <tr class="hover:bg-gray-50 cursor-pointer" 
+          @click="openDetail({{ .ID }})"
+          x-data="{ jobId: {{ .ID }} }">
+        <td class="px-4 py-3" @click.stop>
+          <input type="checkbox" 
+                 :value="jobId"
+                 x-model="selectedJobs"
+                 class="rounded border-gray-300 text-primary-600 focus:ring-primary-500">
+        </td>
+        <td class="px-4 py-3 text-sm font-mono text-gray-500">#{{ .ID }}</td>
+        <td class="px-4 py-3 text-sm text-gray-900">{{ .PrinterName }}</td>
+        <td class="px-4 py-3 text-sm text-gray-900">{{ .TemplateName }}</td>
+        <td class="px-4 py-3">
+          <span class="px-2 py-1 text-xs font-medium rounded
+            {{ if eq .Status "completed" }}bg-green-100 text-green-800{{ end }}
+            {{ if eq .Status "failed" }}bg-red-100 text-red-800{{ end }}
+            {{ if eq .Status "cancelled" }}bg-gray-100 text-gray-800{{ end }}">
+            {{ .Status | title }}
+          </span>
+        </td>
+        <td class="px-4 py-3 text-sm text-gray-500">{{ .CreatedAt.Format "2006-01-02 15:04:05" }}</td>
+        <td class="px-4 py-3 text-sm text-gray-500">
+          {{ if .Duration }}{{ .Duration }}ms{{ else }}-{{ end }}
+        </td>
+        <td class="px-4 py-3 text-sm" @click.stop>
+          <div class="flex items-center space-x-2">
+            <button hx-get="/jobs/{{ .ID }}/detail-modal"
+                    hx-target="#modal-container"
+                    class="text-primary-600 hover:text-primary-700 font-medium">
+              View
+            </button>
+            {{ if eq .Status "completed" }}
+            <button hx-post="/api/jobs/{{ .ID }}/reprint"
+                    hx-target="#history-table"
+                    class="text-green-600 hover:text-green-700 font-medium">
+              Reprint
+            </button>
+            {{ end }}
+            {{ if eq .Status "failed" }}
+            <button hx-post="/api/jobs/{{ .ID }}/retry"
+                    hx-target="#history-table"
+                    class="text-yellow-600 hover:text-yellow-700 font-medium">
+              Retry
+            </button>
+            {{ end }}
+          </div>
+        </td>
+      </tr>
+      {{ else }}
+      <tr>
+        <td colspan="8" class="px-4 py-12 text-center text-gray-500">
+          <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+          </svg>
+          <p class="mt-2">No jobs found</p>
+        </td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+</div>
+
+{{ if .Pagination }}
+<div class="px-4 py-3 border-t flex items-center justify-between">
+  <div class="text-sm text-gray-500">
+    Showing {{ .Pagination.From }} to {{ .Pagination.To }} of {{ .Pagination.Total }} jobs
+  </div>
+  <div class="flex items-center space-x-2">
+    {{ if .Pagination.HasPrev }}
+    <button hx-get="/api/jobs/history-table?page={{ .Pagination.PrevPage }}"
+            hx-target="#history-table"
+            class="px-3 py-1 border border-gray-300 rounded text-sm hover:bg-gray-50">
+      Previous
+    </button>
+    {{ end }}
+    {{ range .Pagination.Pages }}
+    <button hx-get="/api/jobs/history-table?page={{ . }}"
+            hx-target="#history-table"
+            class="px-3 py-1 {{ if eq . $.Pagination.CurrentPage }}bg-primary-600 text-white{{ else }}border border-gray-300 hover:bg-gray-50{{ end }} rounded text-sm">
+      {{ . }}
+    </button>
+    {{ end }}
+    {{ if .Pagination.HasNext }}
+    <button hx-get="/api/jobs/history-table?page={{ .Pagination.NextPage }}"
+            hx-target="#history-table"
+            class="px-3 py-1 border border-gray-300 rounded text-sm hover:bg-gray-50">
+      Next
+    </button>
+    {{ end }}
+  </div>
+</div>
+{{ end }}
+{{ end }}
+
+<script>
+function historyPage() {
+  return {
+    selectedJobs: [],
+    selectAll: false,
+    sortField: 'submitted',
+    sortDir: 'desc',
+    filters: {
+      printer: '',
+      status: '',
+      dateFrom: '',
+      dateTo: '',
+      search: ''
+    },
+    toggleSelectAll() {
+      if (this.selectAll) {
+        this.selectedJobs = {{ .JobIDs }};
+      } else {
+        this.selectedJobs = [];
+      }
+    },
+    sortBy(field) {
+      if (this.sortField === field) {
+        this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        this.sortField = field;
+        this.sortDir = 'asc';
+      }
+      this.applyFilters();
+    },
+    applyFilters() {
+      const params = new URLSearchParams(this.filters);
+      params.set('sort', this.sortField);
+      params.set('dir', this.sortDir);
+      htmx.trigger('#history-table', 'filters-changed');
+    },
+    clearFilters() {
+      this.filters = {
+        printer: '',
+        status: '',
+        dateFrom: '',
+        dateTo: '',
+        search: ''
+      };
+      this.applyFilters();
+    },
+    openDetail(jobId) {
+      htmx.ajax('GET', `/jobs/${jobId}/detail-modal`, '#modal-container');
+    },
+    exportCSV() {
+      const params = new URLSearchParams(this.filters);
+      window.location.href = `/api/jobs/export?${params.toString()}`;
+    },
+    async reprintSelected() {
+      if (this.selectedJobs.length === 0) return;
+      const response = await fetch('/api/jobs/batch-reprint', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ job_ids: this.selectedJobs })
+      });
+      if (response.ok) {
+        this.selectedJobs = [];
+        htmx.trigger('#history-table', 'filters-changed');
+      }
+    }
+  }
+}
+</script>
+{{ end }}

@@ -1,0 +1,246 @@
+{{ define "modal-content" }}
+<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" 
+     x-data="templatePreview({{ .Template | json }}, {{ .TSPLCode | json }}, {{ .MergedPreview | json }})"
+     @keydown.escape.window="$dispatch('close-modal')"
+     @click.self="$dispatch('close-modal')">
+  <div class="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col" @click.stop>
+    <div class="flex justify-between items-center px-6 py-4 border-b">
+      <h2 class="text-xl font-semibold text-gray-900">
+        Preview: <span x-text="template.name"></span>
+      </h2>
+      <button @click="$dispatch('close-modal')" class="text-gray-400 hover:text-gray-600">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    
+    <div class="flex flex-1 overflow-hidden">
+      <div class="w-1/2 p-6 border-r overflow-y-auto">
+        <div class="mb-4">
+          <div class="flex items-center space-x-2 text-sm text-gray-600 mb-2">
+            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded font-medium" x-text="template.label_width + 'x' + template.label_height + 'mm'"></span>
+            <span class="px-2 py-1 bg-gray-100 text-gray-700 rounded" x-text="template.dpi + ' DPI'"></span>
+            <span class="px-2 py-1 bg-gray-100 text-gray-700 rounded" x-text="template.elements.length + ' elements'"></span>
+          </div>
+          <p class="text-gray-600 text-sm" x-text="template.description"></p>
+        </div>
+        
+        <div class="mb-6">
+          <h3 class="font-semibold text-gray-700 mb-3">Variables</h3>
+          <div x-show="template.variables && template.variables.length > 0" class="space-y-2">
+            <template x-for="variable in template.variables" :key="variable.name">
+              <div class="flex items-center space-x-3 p-2 border rounded bg-gray-50">
+                <span class="font-mono text-purple-600 text-sm" x-text="'{{' + variable.name + '}}'"></span>
+                <span x-show="variable.required" class="px-1 text-xs bg-red-100 text-red-700 rounded">Required</span>
+                <input type="text" 
+                       x-model="variableValues[variable.name]" 
+                       @input="updateMergedPreview"
+                       :placeholder="variable.default_value || 'Enter value'"
+                       class="flex-1 border rounded p-1 text-sm">
+              </div>
+            </template>
+          </div>
+          <div x-show="!template.variables || template.variables.length === 0" class="text-sm text-gray-400 italic">
+            No variables defined for this template
+          </div>
+        </div>
+        
+        <div class="mb-6">
+          <h3 class="font-semibold text-gray-700 mb-3">Elements</h3>
+          <div class="space-y-2">
+            <template x-for="(element, index) in template.elements" :key="index">
+              <div class="flex items-center justify-between p-2 border rounded text-sm">
+                <div class="flex items-center">
+                  <span class="w-6 h-6 flex items-center justify-center bg-gray-100 rounded mr-2 text-xs" x-text="index + 1"></span>
+                  <span class="font-medium capitalize" x-text="element.type"></span>
+                </div>
+                <span class="text-gray-500 text-xs" x-text="'(' + element.x + ', ' + element.y + ')'"></span>
+              </div>
+            </template>
+          </div>
+        </div>
+        
+        <div>
+          <h3 class="font-semibold text-gray-700 mb-3">Test Print</h3>
+          <div class="space-y-3">
+            <div>
+              <label class="block text-sm font-medium text-gray-600 mb-1">Printer</label>
+              <select x-model="selectedPrinterId" class="w-full border rounded p-2 text-sm">
+                <option value="">Select a printer</option>
+                <template x-for="printer in printers" :key="printer.id">
+                  <option :value="printer.id" x-text="printer.name + ' (' + printer.ip_address + ')'"></option>
+                </template>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-600 mb-1">Copies</label>
+              <input type="number" x-model.number="copies" min="1" max="100" class="w-full border rounded p-2 text-sm">
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="w-1/2 p-6 flex flex-col">
+        <div class="flex space-x-4 mb-3 border-b">
+          <button @click="activeTab = 'tspl'" 
+                  :class="activeTab === 'tspl' ? 'border-primary-500 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
+                  class="pb-2 px-1 border-b-2 font-medium text-sm">
+            TSPL2 Code
+          </button>
+          <button @click="activeTab = 'merged'" 
+                  :class="activeTab === 'merged' ? 'border-primary-500 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
+                  class="pb-2 px-1 border-b-2 font-medium text-sm">
+            Merged Preview
+          </button>
+        </div>
+        
+        <div class="flex-1 overflow-hidden">
+          <div x-show="activeTab === 'tspl'" class="h-full flex flex-col">
+            <div class="flex justify-end mb-2">
+              <button @click="copyTSPL" class="text-sm text-primary-600 hover:text-primary-700 flex items-center">
+                <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                </svg>
+                Copy Code
+              </button>
+            </div>
+            <pre class="bg-gray-900 text-green-400 p-4 rounded text-xs overflow-auto flex-1 font-mono whitespace-pre-wrap" x-text="tsplCode"></pre>
+          </div>
+          
+          <div x-show="activeTab === 'merged'" class="h-full flex flex-col">
+            <div class="flex justify-end mb-2">
+              <button @click="copyMerged" class="text-sm text-primary-600 hover:text-primary-700 flex items-center">
+                <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                </svg>
+                Copy Code
+              </button>
+            </div>
+            <pre class="bg-gray-900 text-green-400 p-4 rounded text-xs overflow-auto flex-1 font-mono whitespace-pre-wrap" x-text="mergedPreview"></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="flex justify-between space-x-3 px-6 py-4 border-t bg-gray-50">
+      <div class="flex items-center text-sm text-gray-500">
+        <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+        <span x-text="template.elements.length + ' elements, ' + (template.variables?.length || 0) + ' variables'"></span>
+      </div>
+      <div class="flex space-x-3">
+        <button @click="$dispatch('close-modal')" class="px-4 py-2 border rounded text-gray-700 hover:bg-gray-100 transition-colors">
+          Close
+        </button>
+        <button @click="printTest" 
+                :disabled="!selectedPrinterId || isPrinting"
+                :class="selectedPrinterId && !isPrinting ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-300 cursor-not-allowed'"
+                class="px-4 py-2 text-white rounded transition-colors flex items-center">
+          <svg x-show="isPrinting" class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <span x-text="isPrinting ? 'Printing...' : 'Print Test'"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function templatePreview(template, tsplCode, mergedPreview) {
+  return {
+    template: template,
+    tsplCode: tsplCode,
+    mergedPreview: mergedPreview || tsplCode,
+    originalTspl: tsplCode,
+    activeTab: 'tspl',
+    selectedPrinterId: '',
+    copies: 1,
+    isPrinting: false,
+    printers: [],
+    variableValues: {},
+    
+    init() {
+      this.loadPrinters();
+      if (template.variables) {
+        template.variables.forEach(v => {
+          this.variableValues[v.name] = v.default_value || '';
+        });
+      }
+      this.updateMergedPreview();
+    },
+    
+    loadPrinters() {
+      fetch('/api/printers')
+        .then(res => res.json())
+        .then(data => {
+          this.printers = data.printers || [];
+        })
+        .catch(err => console.error('Failed to load printers:', err));
+    },
+    
+    updateMergedPreview() {
+      let merged = this.originalTspl;
+      Object.keys(this.variableValues).forEach(key => {
+        const value = this.variableValues[key] || '';
+        merged = merged.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value);
+      });
+      this.mergedPreview = merged;
+    },
+    
+    copyTSPL() {
+      navigator.clipboard.writeText(this.tsplCode).then(() => {
+        this.showToast('TSPL code copied to clipboard');
+      });
+    },
+    
+    copyMerged() {
+      navigator.clipboard.writeText(this.mergedPreview).then(() => {
+        this.showToast('Merged code copied to clipboard');
+      });
+    },
+    
+    printTest() {
+      if (!this.selectedPrinterId || this.isPrinting) return;
+      
+      this.isPrinting = true;
+      
+      fetch('/api/print', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          printer_id: this.selectedPrinterId,
+          template_id: this.template.id,
+          variables: this.variableValues,
+          copies: this.copies
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        this.isPrinting = false;
+        if (data.success) {
+          this.showToast('Print job submitted successfully');
+        } else {
+          this.showToast('Error: ' + data.error, 'error');
+        }
+      })
+      .catch(err => {
+        this.isPrinting = false;
+        this.showToast('Error: ' + err.message, 'error');
+      });
+    },
+    
+    showToast(message, type = 'success') {
+      const toast = document.createElement('div');
+      toast.className = `fixed bottom-4 right-4 px-4 py-2 rounded shadow-lg z-50 ${type === 'success' ? 'bg-green-600' : 'bg-red-600'} text-white`;
+      toast.textContent = message;
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 3000);
+    }
+  };
+}
+</script>
+{{ end }}

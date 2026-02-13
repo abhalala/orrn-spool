@@ -1,0 +1,553 @@
+{{ define "modal-content" }}
+<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" 
+     x-data="templateEditor({{ .Template | json }}, {{ .TSPLPreview }})"
+     @keydown.escape.window="$dispatch('close-modal')"
+     @click.self="$dispatch('close-modal')">
+  <div class="bg-white rounded-lg shadow-xl w-full max-w-7xl max-h-[95vh] flex flex-col" @click.stop>
+    <div class="flex justify-between items-center px-6 py-4 border-b">
+      <h2 class="text-xl font-semibold text-gray-900" x-text="isNew ? 'Create Template' : 'Edit Template'"></h2>
+      <button @click="$dispatch('close-modal')" class="text-gray-400 hover:text-gray-600">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    
+    <div class="flex flex-1 overflow-hidden">
+      <div class="w-1/4 border-r p-4 overflow-y-auto">
+        <h3 class="font-semibold mb-2 text-gray-700">Template Settings</h3>
+        <div class="space-y-3">
+          <div>
+            <label class="block text-sm font-medium text-gray-600">Name</label>
+            <input type="text" x-model="template.name" class="w-full border rounded p-2 text-sm" placeholder="Template name">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-600">Description</label>
+            <textarea x-model="template.description" class="w-full border rounded p-2 text-sm" rows="2" placeholder="Description"></textarea>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-sm font-medium text-gray-600">Width (mm)</label>
+              <input type="number" x-model.number="template.label_width" @input="updatePreview" class="w-full border rounded p-2 text-sm">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-600">Height (mm)</label>
+              <input type="number" x-model.number="template.label_height" @input="updatePreview" class="w-full border rounded p-2 text-sm">
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-sm font-medium text-gray-600">Gap (mm)</label>
+              <input type="number" x-model.number="template.gap" step="0.1" @input="updatePreview" class="w-full border rounded p-2 text-sm">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-600">DPI</label>
+              <select x-model.number="template.dpi" @change="updatePreview" class="w-full border rounded p-2 text-sm">
+                <option value="203">203 DPI</option>
+                <option value="300">300 DPI</option>
+                <option value="600">600 DPI</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        
+        <h3 class="font-semibold mt-6 mb-2 text-gray-700">Variables</h3>
+        <div class="space-y-2">
+          <template x-for="(variable, index) in detectedVariables" :key="variable.name">
+            <div class="border rounded p-2 text-sm">
+              <div class="flex justify-between items-center">
+                <span class="font-mono text-purple-600" x-text="'{{' + variable.name + '}}'"></span>
+                <label class="flex items-center">
+                  <input type="checkbox" x-model="variable.required" class="mr-1">
+                  <span class="text-xs text-gray-500">Required</span>
+                </label>
+              </div>
+              <input type="text" x-model="variable.default_value" placeholder="Default value" class="w-full border rounded p-1 mt-1 text-xs">
+            </div>
+          </template>
+          <div x-show="detectedVariables.length === 0" class="text-xs text-gray-400 italic">
+            Use {{variable}} syntax in content to define variables
+          </div>
+        </div>
+      </div>
+      
+      <div class="w-1/4 border-r flex flex-col">
+        <div class="p-4 border-b flex justify-between items-center">
+          <h3 class="font-semibold text-gray-700">Elements</h3>
+          <div class="relative">
+            <button @click="showAddMenu = !showAddMenu" class="bg-primary-600 text-white px-3 py-1 rounded text-sm hover:bg-primary-700">
+              + Add
+            </button>
+            <div x-show="showAddMenu" @click.away="showAddMenu = false" x-transition 
+                 class="absolute right-0 mt-1 w-40 bg-white border rounded shadow-lg z-10">
+              <template x-for="type in elementTypes" :key="type.value">
+                <button @click="addElement(type.value); showAddMenu = false"
+                        class="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center">
+                  <span x-html="type.icon" class="mr-2 w-4 h-4"></span>
+                  <span x-text="type.label"></span>
+                </button>
+              </template>
+            </div>
+          </div>
+        </div>
+        <div class="flex-1 overflow-y-auto p-2" id="elements-list">
+          <template x-for="(element, index) in template.elements" :key="index">
+            <div class="border rounded p-2 mb-2 cursor-pointer transition-colors"
+                 :class="selectedElementIndex === index ? 'bg-primary-50 border-primary-300' : 'hover:bg-gray-50'"
+                 @click="selectElement(index)"
+                 draggable="true"
+                 @dragstart="dragStart($event, index)"
+                 @dragover.prevent="dragOver($event, index)"
+                 @drop="drop($event, index)">
+              <div class="flex justify-between items-center">
+                <div class="flex items-center">
+                  <span x-html="getElementTypeIcon(element.type)" class="mr-2 w-4 h-4"></span>
+                  <span class="text-sm font-medium capitalize" x-text="element.type"></span>
+                </div>
+                <button @click.stop="removeElement(index)" class="text-red-500 hover:text-red-700">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                  </svg>
+                </button>
+              </div>
+              <div class="text-xs text-gray-500 mt-1">
+                <span x-text="'(' + element.x + ', ' + element.y + ')'"></span>
+                <template x-if="element.content">
+                  <span class="ml-2 truncate" x-text="element.content.substring(0, 20)"></span>
+                </template>
+              </div>
+            </div>
+          </template>
+          <div x-show="template.elements.length === 0" class="text-center py-8 text-gray-400 text-sm">
+            No elements added yet.<br>Click "+ Add" to add elements.
+          </div>
+        </div>
+      </div>
+      
+      <div class="w-1/4 border-r p-4 overflow-y-auto">
+        <h3 class="font-semibold mb-3 text-gray-700">Element Properties</h3>
+        <div x-show="selectedElementIndex !== null" id="element-editor">
+          <div class="space-y-4">
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-sm font-medium text-gray-600">X Position</label>
+                <input type="number" x-model.number="selectedElement.x" @input="updatePreview" class="w-full border rounded p-2 text-sm">
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-600">Y Position</label>
+                <input type="number" x-model.number="selectedElement.y" @input="updatePreview" class="w-full border rounded p-2 text-sm">
+              </div>
+            </div>
+            
+            <template x-if="['text', 'barcode', 'qrcode', 'pdf417', 'datamatrix'].includes(selectedElement?.type)">
+              <div>
+                <label class="block text-sm font-medium text-gray-600">Content</label>
+                <input type="text" x-model="selectedElement.content" @input="detectVariables(); updatePreview()" 
+                       class="w-full border rounded p-2 text-sm" placeholder="Use {{variable}} for dynamic text">
+              </div>
+            </template>
+            
+            <template x-if="selectedElement?.type === 'text'">
+              <div>
+                <label class="block text-sm font-medium text-gray-600">Font</label>
+                <select x-model.number="selectedElement.font" @change="updatePreview" class="w-full border rounded p-2 text-sm">
+                  <option value="1">8x12 dots</option>
+                  <option value="2">12x20 dots</option>
+                  <option value="3">16x24 dots</option>
+                  <option value="4">24x32 dots</option>
+                  <option value="5">32x48 dots</option>
+                </select>
+              </div>
+            </template>
+            
+            <template x-if="selectedElement?.type === 'text'">
+              <div>
+                <label class="block text-sm font-medium text-gray-600">Font Size (points)</label>
+                <input type="number" x-model.number="selectedElement.font_size" @input="updatePreview" class="w-full border rounded p-2 text-sm">
+              </div>
+            </template>
+            
+            <template x-if="['barcode', 'qrcode', 'pdf417', 'datamatrix'].includes(selectedElement?.type)">
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="block text-sm font-medium text-gray-600">Width</label>
+                  <input type="number" x-model.number="selectedElement.width" @input="updatePreview" class="w-full border rounded p-2 text-sm">
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-600">Height</label>
+                  <input type="number" x-model.number="selectedElement.height" @input="updatePreview" class="w-full border rounded p-2 text-sm">
+                </div>
+              </div>
+            </template>
+            
+            <template x-if="selectedElement?.type === 'barcode'">
+              <div>
+                <label class="block text-sm font-medium text-gray-600">Barcode Type</label>
+                <select x-model="selectedElement.barcode_type" @change="updatePreview" class="w-full border rounded p-2 text-sm">
+                  <option value="CODE128">Code 128</option>
+                  <option value="CODE39">Code 39</option>
+                  <option value="CODE93">Code 93</option>
+                  <option value="EAN13">EAN-13</option>
+                  <option value="EAN8">EAN-8</option>
+                  <option value="UPCA">UPC-A</option>
+                  <option value="UPCE">UPC-E</option>
+                  <option value="INTERLEAVED25">Interleaved 2 of 5</option>
+                </select>
+              </div>
+            </template>
+            
+            <template x-if="selectedElement?.type === 'qrcode'">
+              <div>
+                <label class="block text-sm font-medium text-gray-600">Cell Size</label>
+                <input type="number" x-model.number="selectedElement.cell_size" @input="updatePreview" class="w-full border rounded p-2 text-sm" min="1" max="10">
+              </div>
+            </template>
+            
+            <template x-if="['box', 'line'].includes(selectedElement?.type)">
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="block text-sm font-medium text-gray-600">Width</label>
+                  <input type="number" x-model.number="selectedElement.width" @input="updatePreview" class="w-full border rounded p-2 text-sm">
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-600">Height</label>
+                  <input type="number" x-model.number="selectedElement.height" @input="updatePreview" class="w-full border rounded p-2 text-sm">
+                </div>
+              </div>
+              <div class="mt-2">
+                <label class="block text-sm font-medium text-gray-600">Line Thickness</label>
+                <input type="number" x-model.number="selectedElement.thickness" @input="updatePreview" class="w-full border rounded p-2 text-sm">
+              </div>
+            </template>
+            
+            <template x-if="selectedElement?.type === 'circle'">
+              <div>
+                <label class="block text-sm font-medium text-gray-600">Diameter</label>
+                <input type="number" x-model.number="selectedElement.diameter" @input="updatePreview" class="w-full border rounded p-2 text-sm">
+              </div>
+              <div class="mt-2">
+                <label class="block text-sm font-medium text-gray-600">Line Thickness</label>
+                <input type="number" x-model.number="selectedElement.thickness" @input="updatePreview" class="w-full border rounded p-2 text-sm">
+              </div>
+            </template>
+            
+            <template x-if="selectedElement?.type === 'image'">
+              <div>
+                <label class="block text-sm font-medium text-gray-600">Image Path</label>
+                <input type="text" x-model="selectedElement.image_path" @input="updatePreview" class="w-full border rounded p-2 text-sm" placeholder="/path/to/image.bmp">
+              </div>
+              <div class="mt-2 grid grid-cols-2 gap-2">
+                <div>
+                  <label class="block text-sm font-medium text-gray-600">Width</label>
+                  <input type="number" x-model.number="selectedElement.width" @input="updatePreview" class="w-full border rounded p-2 text-sm">
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-600">Height</label>
+                  <input type="number" x-model.number="selectedElement.height" @input="updatePreview" class="w-full border rounded p-2 text-sm">
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+        <div x-show="selectedElementIndex === null" class="text-center py-8 text-gray-400 text-sm">
+          Select an element to edit its properties
+        </div>
+      </div>
+      
+      <div class="w-1/4 p-4 flex flex-col">
+        <div class="flex justify-between items-center mb-3">
+          <h3 class="font-semibold text-gray-700">TSPL2 Preview</h3>
+          <button @click="copyTSPL" class="text-sm text-primary-600 hover:text-primary-700">
+            Copy
+          </button>
+        </div>
+        <pre class="bg-gray-900 text-green-400 p-3 rounded text-xs overflow-auto flex-1 font-mono" x-text="tsplPreview"></pre>
+        
+        <div class="mt-4">
+          <h4 class="text-sm font-medium text-gray-600 mb-2">Test Variables</h4>
+          <div class="space-y-2 max-h-32 overflow-y-auto">
+            <template x-for="variable in detectedVariables" :key="variable.name">
+              <div>
+                <label class="block text-xs text-gray-500" x-text="variable.name"></label>
+                <input type="text" x-model="testValues[variable.name]" @input="updatePreview" 
+                       class="w-full border rounded p-1 text-sm" :placeholder="variable.default_value">
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="flex justify-end space-x-3 px-6 py-4 border-t bg-gray-50">
+      <button @click="$dispatch('close-modal')" class="px-4 py-2 border rounded text-gray-700 hover:bg-gray-100 transition-colors">
+        Cancel
+      </button>
+      <button @click="saveTemplate" 
+              :disabled="!template.name"
+              :class="template.name ? 'bg-primary-600 hover:bg-primary-700' : 'bg-gray-300 cursor-not-allowed'"
+              class="px-4 py-2 text-white rounded transition-colors">
+        Save Template
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+function templateEditor(initialTemplate, initialTSPL) {
+  return {
+    template: initialTemplate || {
+      name: '',
+      description: '',
+      label_width: 50,
+      label_height: 30,
+      gap: 2,
+      dpi: 203,
+      elements: []
+    },
+    tsplPreview: initialTSPL || '',
+    selectedElementIndex: null,
+    showAddMenu: false,
+    isNew: !initialTemplate?.id,
+    draggedIndex: null,
+    detectedVariables: [],
+    testValues: {},
+    
+    elementTypes: [
+      { value: 'text', label: 'Text', icon: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7"/></svg>' },
+      { value: 'barcode', label: 'Barcode', icon: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h2M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"/></svg>' },
+      { value: 'qrcode', label: 'QR Code', icon: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h2M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"/></svg>' },
+      { value: 'pdf417', label: 'PDF417', icon: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg>' },
+      { value: 'datamatrix', label: 'DataMatrix', icon: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zm10-1a1 1 0 100 2h2v2h-2a1 1 0 100 2h4a1 1 0 001-1v-4a1 1 0 00-1-1h-4z"/></svg>' },
+      { value: 'box', label: 'Box', icon: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5z"/></svg>' },
+      { value: 'line', label: 'Line', icon: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 20L20 4"/></svg>' },
+      { value: 'circle', label: 'Circle', icon: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" stroke-width="2"/></svg>' },
+      { value: 'image', label: 'Image', icon: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>' }
+    ],
+    
+    get selectedElement() {
+      return this.selectedElementIndex !== null ? this.template.elements[this.selectedElementIndex] : null;
+    },
+    
+    init() {
+      this.detectVariables();
+      this.updatePreview();
+    },
+    
+    addElement(type) {
+      const newElement = {
+        type: type,
+        x: 10,
+        y: 10,
+        content: ''
+      };
+      
+      switch (type) {
+        case 'text':
+          newElement.font = 3;
+          newElement.font_size = 0;
+          break;
+        case 'barcode':
+          newElement.width = 2;
+          newElement.height = 50;
+          newElement.barcode_type = 'CODE128';
+          break;
+        case 'qrcode':
+          newElement.cell_size = 4;
+          newElement.width = 50;
+          break;
+        case 'pdf417':
+        case 'datamatrix':
+          newElement.width = 50;
+          newElement.height = 50;
+          break;
+        case 'box':
+        case 'line':
+          newElement.width = 100;
+          newElement.height = 50;
+          newElement.thickness = 2;
+          break;
+        case 'circle':
+          newElement.diameter = 30;
+          newElement.thickness = 2;
+          break;
+        case 'image':
+          newElement.width = 100;
+          newElement.height = 100;
+          newElement.image_path = '';
+          break;
+      }
+      
+      this.template.elements.push(newElement);
+      this.selectedElementIndex = this.template.elements.length - 1;
+      this.updatePreview();
+    },
+    
+    selectElement(index) {
+      this.selectedElementIndex = index;
+    },
+    
+    removeElement(index) {
+      this.template.elements.splice(index, 1);
+      if (this.selectedElementIndex === index) {
+        this.selectedElementIndex = null;
+      } else if (this.selectedElementIndex > index) {
+        this.selectedElementIndex--;
+      }
+      this.detectVariables();
+      this.updatePreview();
+    },
+    
+    dragStart(event, index) {
+      this.draggedIndex = index;
+      event.dataTransfer.effectAllowed = 'move';
+    },
+    
+    dragOver(event, index) {
+      event.preventDefault();
+    },
+    
+    drop(event, index) {
+      if (this.draggedIndex !== null && this.draggedIndex !== index) {
+        const element = this.template.elements.splice(this.draggedIndex, 1)[0];
+        this.template.elements.splice(index, 0, element);
+        if (this.selectedElementIndex === this.draggedIndex) {
+          this.selectedElementIndex = index;
+        }
+      }
+      this.draggedIndex = null;
+      this.updatePreview();
+    },
+    
+    detectVariables() {
+      const variablePattern = /\{\{(\w+)\}\}/g;
+      const found = new Set();
+      
+      this.template.elements.forEach(element => {
+        if (element.content) {
+          let match;
+          while ((match = variablePattern.exec(element.content)) !== null) {
+            found.add(match[1]);
+          }
+        }
+      });
+      
+      const existingNames = new Set(this.detectedVariables.map(v => v.name));
+      found.forEach(name => {
+        if (!existingNames.has(name)) {
+          this.detectedVariables.push({
+            name: name,
+            required: false,
+            default_value: ''
+          });
+        }
+      });
+      
+      this.detectedVariables = this.detectedVariables.filter(v => found.has(v.name));
+    },
+    
+    updatePreview() {
+      this.generateTSPL();
+    },
+    
+    generateTSPL() {
+      const dpi = this.template.dpi;
+      const mmToDots = mm => Math.round(mm * dpi / 25.4);
+      
+      let tspl = `SIZE ${mmToDots(this.template.label_width)} mm, ${mmToDots(this.template.label_height)} mm\n`;
+      tspl += `GAP ${mmToDots(this.template.gap)} mm, 0 mm\n`;
+      tspl += `DENSITY 10\n`;
+      tspl += `DIRECTION 1\n`;
+      tspl += `CLS\n`;
+      
+      this.template.elements.forEach(element => {
+        const x = mmToDots(element.x);
+        const y = mmToDots(element.y);
+        
+        let content = element.content || '';
+        Object.keys(this.testValues).forEach(key => {
+          if (this.testValues[key]) {
+            content = content.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), this.testValues[key]);
+          }
+        });
+        
+        switch (element.type) {
+          case 'text':
+            const fontSize = element.font_size || element.font * 8;
+            tspl += `TEXT ${x},${y},"${element.font}",0,1,1,"${content}"\n`;
+            break;
+          case 'barcode':
+            const bcWidth = mmToDots(element.width);
+            const bcHeight = mmToDots(element.height);
+            tspl += `BARCODE ${x},${y},"${element.barcode_type}",${bcHeight},1,0,2,2,"${content}"\n`;
+            break;
+          case 'qrcode':
+            const qrSize = element.cell_size || 4;
+            tspl += `QRCODE ${x},${y},H,${qrSize},A,0,"${content}"\n`;
+            break;
+          case 'pdf417':
+            tspl += `PDF417 ${x},${y},${element.width},${element.height},"${content}"\n`;
+            break;
+          case 'datamatrix':
+            tspl += `DMATRIX ${x},${y},${element.width},"${content}"\n`;
+            break;
+          case 'box':
+            tspl += `BOX ${x},${y},${x + mmToDots(element.width)},${y + mmToDots(element.height)},${element.thickness}\n`;
+            break;
+          case 'line':
+            tspl += `LINE ${x},${y},${x + mmToDots(element.width)},${y + mmToDots(element.height)},${element.thickness}\n`;
+            break;
+          case 'circle':
+            tspl += `CIRCLE ${x},${y},${element.diameter},${element.thickness}\n`;
+            break;
+          case 'image':
+            if (element.image_path) {
+              tspl += `BITMAP ${x},${y},${element.width},${element.height},0,"${element.image_path}"\n`;
+            }
+            break;
+        }
+      });
+      
+      tspl += 'PRINT 1,1\n';
+      this.tsplPreview = tspl;
+    },
+    
+    getElementTypeIcon(type) {
+      const found = this.elementTypes.find(t => t.value === type);
+      return found ? found.icon : '';
+    },
+    
+    copyTSPL() {
+      navigator.clipboard.writeText(this.tsplPreview).then(() => {
+        alert('TSPL copied to clipboard!');
+      });
+    },
+    
+    saveTemplate() {
+      const url = this.isNew ? '/api/templates' : `/api/templates/${this.template.id}`;
+      const method = this.isNew ? 'POST' : 'PUT';
+      
+      fetch(url, {
+        method: method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...this.template,
+          variables: this.detectedVariables
+        })
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          htmx.trigger('body', 'template-saved');
+          this.$dispatch('close-modal');
+        } else {
+          alert('Error saving template: ' + data.error);
+        }
+      })
+      .catch(err => {
+        alert('Error saving template: ' + err.message);
+      });
+    }
+  };
+}
+</script>
+{{ end }}
