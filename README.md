@@ -359,15 +359,15 @@ curl -X POST http://localhost:8080/api/ai/generate \
 ### Database Schema
 
 ```
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│   printers   │     │ print_jobs   │     │label_templates│
-├──────────────┤     ├──────────────┤     ├──────────────┤
-│ id           │◄────│ printer_id   │     │ id           │
-│ name         │     │ template_id  │────►│ name         │
-│ ip_address   │     │ variables    │     │ schema_json  │
-│ port         │     │ tspl_content │     │ width_mm     │
-│ dpi          │     │ status       │     │ height_mm    │
-│ label_width  │     │ priority     │     └──────────────┘
+┌──────────────┐     ┌──────────────┐     ┌───────────────┐
+│   printers   │     │  print_jobs  │     │label_templates│
+├──────────────┤     ├──────────────┤     ├───────────────┤
+│ id           │◄────│ printer_id   │     │ id            │
+│ name         │     │ template_id  │────►│ name          │
+│ ip_address   │     │ variables    │     │ schema_json   │
+│ port         │     │ tspl_content │     │ width_mm      │
+│ dpi          │     │ status       │     │ height_mm     │
+│ label_width  │     │ priority     │     └───────────────┘
 │ label_height │     │ retry_count  │
 │ gap_mm       │     │ error_message│     ┌──────────────┐
 │ status       │     │ copies       │     │   webhooks   │
