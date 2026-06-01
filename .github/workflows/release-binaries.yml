@@ -23,7 +23,7 @@ jobs:
             output: orrn-spool-linux-amd64
             cc: ""
           - platform: darwin-amd64
-            runs_on: macos-13
+            runs_on: macos-14
             shell: bash
             goos: darwin
             goarch: amd64
@@ -42,7 +42,7 @@ jobs:
             goos: windows
             goarch: amd64
             output: orrn-spool-windows-amd64.exe
-            cc: C:/msys64/ucrt64/bin/gcc.exe
+            cc: gcc
     runs-on: ${{ matrix.runs_on }}
     defaults:
       run:
