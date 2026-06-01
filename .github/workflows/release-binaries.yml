@@ -38,11 +38,11 @@ jobs:
             cc: ""
           - platform: windows-amd64
             runs_on: windows-latest
-            shell: msys2 {0}
+            shell: pwsh
             goos: windows
             goarch: amd64
             output: orrn-spool-windows-amd64.exe
-            cc: x86_64-w64-mingw32-gcc
+            cc: C:/msys64/ucrt64/bin/gcc.exe
     runs-on: ${{ matrix.runs_on }}
     defaults:
       run:
@@ -56,9 +56,14 @@ jobs:
         uses: msys2/setup-msys2@v2
         with:
           install: mingw-w64-ucrt-x86_64-gcc
+      - if: matrix.platform == 'windows-amd64'
+        name: Add MinGW to PATH
+        shell: pwsh
+        run: echo "C:/msys64/ucrt64/bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Download modules
         run: go mod download
-      - name: Build binary
+      - if: matrix.platform != 'windows-amd64'
+        name: Build binary
         env:
           CGO_ENABLED: '1'
           GOOS: ${{ matrix.goos }}
@@ -66,6 +71,17 @@ jobs:
           CC: ${{ matrix.cc }}
         run: |
           mkdir -p dist
+          go build -ldflags "-w -s" -o "dist/${{ matrix.output }}" ./cmd/spool
+      - if: matrix.platform == 'windows-amd64'
+        name: Build binary (Windows)
+        shell: pwsh
+        env:
+          CGO_ENABLED: '1'
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CC: ${{ matrix.cc }}
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
           go build -ldflags "-w -s" -o "dist/${{ matrix.output }}" ./cmd/spool
       - uses: actions/upload-artifact@v4
         with:
