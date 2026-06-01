@@ -5,6 +5,7 @@ import (
 )
 
 type WebhookSender interface {
+	SendJobEvent(event string, jobID int64, printerID int64, status JobStatus, errorMsg string) error
 	SendPrinterStatusChange(printerID int64, printerName, oldStatus, newStatus string, details *PrinterStatus) error
 	SendPrintComplete(printerID int64, jobID int64, success bool, errorMsg string) error
 }

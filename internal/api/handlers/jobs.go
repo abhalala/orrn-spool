@@ -10,8 +10,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"orrn-spool/internal/core"
-	"orrn-spool/internal/db"
+	"github.com/orrn/spool/internal/core"
+	"github.com/orrn/spool/internal/db"
 )
 
 type CreateJobRequest struct {

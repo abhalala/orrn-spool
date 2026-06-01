@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"orrn-spool/internal/core"
-	"orrn-spool/internal/db"
+	"github.com/orrn/spool/internal/core"
+	"github.com/orrn/spool/internal/db"
 )
 
 type WebhookEvent string
@@ -130,6 +130,17 @@ func (s *WebhookSender) Start() {
 func (s *WebhookSender) Stop() {
 	close(s.stopCh)
 	s.wg.Wait()
+}
+
+func (s *WebhookSender) SendJobEvent(event string, jobID int64, printerID int64, status core.JobStatus, errorMsg string) error {
+	payload := &JobEventData{
+		JobID:        jobID,
+		PrinterID:    printerID,
+		Status:       string(status),
+		ErrorMessage: errorMsg,
+	}
+	s.enqueue(WebhookEvent(event), payload)
+	return nil
 }
 
 func (s *WebhookSender) SendJobStarted(jobID, printerID, templateID int64) {

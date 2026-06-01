@@ -10,7 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"orrn-spool/internal/archive"
+	"github.com/orrn/spool/internal/archive"
 )
 
 type ArchiveHandler struct {
@@ -175,12 +175,12 @@ func (h *ArchiveHandler) GetArchiveSettings(c *gin.Context) {
 	})
 }
 
-type UpdateArchiveSettingsRequest struct {
+type ArchiveDaysUpdateRequest struct {
 	ArchiveDays int `json:"archive_days" binding:"required,min=1,max=365"`
 }
 
 func (h *ArchiveHandler) UpdateArchiveSettings(c *gin.Context) {
-	var req UpdateArchiveSettingsRequest
+	var req ArchiveDaysUpdateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

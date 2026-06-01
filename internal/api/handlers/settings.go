@@ -8,8 +8,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
-	"orrn-spool/internal/config"
-	"orrn-spool/internal/db"
+	"github.com/orrn/spool/internal/config"
+	"github.com/orrn/spool/internal/db"
 )
 
 const (

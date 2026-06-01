@@ -1,11 +1,14 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/orrn/spool/internal/db"
 )
 
 type LabelSchema struct {
@@ -74,6 +77,27 @@ type TSPL2Generator struct{}
 
 func NewTSPL2Generator() *TSPL2Generator {
 	return &TSPL2Generator{}
+}
+
+func (g *TSPL2Generator) GenerateFromTemplate(templateID int64, variablesJSON string) (string, error) {
+	template, err := db.Templates.GetTemplateByID(context.Background(), templateID)
+	if err != nil {
+		return "", err
+	}
+
+	schema, err := g.ParseSchema(template.SchemaJSON)
+	if err != nil {
+		return "", err
+	}
+
+	variables := map[string]string{}
+	if strings.TrimSpace(variablesJSON) != "" {
+		if err := json.Unmarshal([]byte(variablesJSON), &variables); err != nil {
+			return "", err
+		}
+	}
+
+	return g.Generate(schema, variables)
 }
 
 func (g *TSPL2Generator) ParseSchema(jsonStr string) (*LabelSchema, error) {

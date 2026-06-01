@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"orrn-spool/internal/db"
-	"orrn-spool/internal/webhook"
+	"github.com/orrn/spool/internal/db"
+	"github.com/orrn/spool/internal/webhook"
 )
 
 type WebhookHandler struct {

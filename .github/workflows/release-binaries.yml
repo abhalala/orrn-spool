@@ -1,0 +1,95 @@
+name: Release Binaries
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-amd64
+            runs_on: ubuntu-latest
+            shell: bash
+            goos: linux
+            goarch: amd64
+            output: orrn-spool-linux-amd64
+            cc: ""
+          - platform: darwin-amd64
+            runs_on: macos-13
+            shell: bash
+            goos: darwin
+            goarch: amd64
+            output: orrn-spool-darwin-amd64
+            cc: ""
+          - platform: darwin-arm64
+            runs_on: macos-14
+            shell: bash
+            goos: darwin
+            goarch: arm64
+            output: orrn-spool-darwin-arm64
+            cc: ""
+          - platform: windows-amd64
+            runs_on: windows-latest
+            shell: msys2 {0}
+            goos: windows
+            goarch: amd64
+            output: orrn-spool-windows-amd64.exe
+            cc: x86_64-w64-mingw32-gcc
+    runs-on: ${{ matrix.runs_on }}
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - if: matrix.platform == 'windows-amd64'
+        uses: msys2/setup-msys2@v2
+        with:
+          install: mingw-w64-ucrt-x86_64-gcc
+      - name: Download modules
+        run: go mod download
+      - name: Build binary
+        env:
+          CGO_ENABLED: '1'
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CC: ${{ matrix.cc }}
+        run: |
+          mkdir -p dist
+          go build -ldflags "-w -s" -o "dist/${{ matrix.output }}" ./cmd/spool
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: dist/${{ matrix.output }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Flatten artifacts
+        run: |
+          mkdir -p release
+          find dist -maxdepth 2 -type f -exec cp {} release/ \;
+          cd release
+          for file in *; do
+            sha256sum "$file" > "$file.sha256"
+          done
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="main-${GITHUB_RUN_NUMBER}-${GITHUB_SHA::7}"
+          gh release create "$TAG" release/*             --repo "$GITHUB_REPOSITORY"             --title "main ${GITHUB_SHA::7}"             --notes "Automated binary release for commit ${GITHUB_SHA}."

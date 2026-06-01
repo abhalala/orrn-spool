@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"orrn-spool/internal/config"
+	"github.com/orrn/spool/internal/config"
 )
 
 type JobStatus string
@@ -49,7 +49,7 @@ type QueueStats struct {
 	Total      int
 }
 
-type WebhookSender interface {
+type QueueWebhookSender interface {
 	SendJobEvent(event string, jobID int64, printerID int64, status JobStatus, errorMsg string) error
 }
 
@@ -67,7 +67,7 @@ type Queue struct {
 	db             *sql.DB
 	printerManager PrinterManagerInterface
 	tsplGenerator  TSPL2GeneratorInterface
-	webhookSender  WebhookSender
+	webhookSender  QueueWebhookSender
 	config         *config.QueueConfig
 	workers        int
 	stopCh         chan struct{}
@@ -77,7 +77,7 @@ type Queue struct {
 	running        bool
 }
 
-func NewQueue(db *sql.DB, pm PrinterManagerInterface, tg TSPL2GeneratorInterface, ws WebhookSender, cfg *config.QueueConfig) *Queue {
+func NewQueue(db *sql.DB, pm PrinterManagerInterface, tg TSPL2GeneratorInterface, ws QueueWebhookSender, cfg *config.QueueConfig) *Queue {
 	if cfg == nil {
 		cfg = &config.QueueConfig{
 			MaxRetries:  3,

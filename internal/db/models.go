@@ -1,9 +1,6 @@
 package db
 
-import (
-	"database/sql"
-	"time"
-)
+import "time"
 
 type Printer struct {
 	ID            int64      `json:"id"`

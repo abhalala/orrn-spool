@@ -263,8 +263,7 @@ func (pm *PrinterManager) reconnect(id int64) (net.Conn, error) {
 
 func (pm *PrinterManager) CheckStatus(id int64) (*PrinterStatus, error) {
 	pm.mu.RLock()
-	p, exists := pm.printers[id]
-	if !exists {
+	if _, exists := pm.printers[id]; !exists {
 		pm.mu.RUnlock()
 		return nil, ErrPrinterNotFound
 	}
@@ -471,8 +470,7 @@ func (pm *PrinterManager) healthCheckLoop() {
 
 func (pm *PrinterManager) SendCommand(id int64, tspl string) error {
 	pm.mu.RLock()
-	p, exists := pm.printers[id]
-	if !exists {
+	if _, exists := pm.printers[id]; !exists {
 		pm.mu.RUnlock()
 		return ErrPrinterNotFound
 	}
@@ -607,6 +605,16 @@ func (pm *PrinterManager) UpdatePrinter(p *Printer) error {
 
 func (pm *PrinterManager) GetConnection(id int64) (net.Conn, error) {
 	return pm.connect(id)
+}
+
+func (pm *PrinterManager) IncrementPrintCount(id int64, count int) error {
+	ctx := context.Background()
+	for i := 0; i < count; i++ {
+		if err := db.Printers.IncrementPrintCount(ctx, id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (pm *PrinterManager) CloseConnection(id int64) {

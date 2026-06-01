@@ -14,8 +14,10 @@ import (
 )
 
 var (
-	db   *sql.DB
-	once sync.Once
+	//go:embed migrations/*.sql
+	migrationsFS embed.FS
+	db           *sql.DB
+	once         sync.Once
 )
 
 type Config struct {
@@ -115,7 +117,30 @@ func runMigrations(db *sql.DB) error {
 }
 
 func loadMigrations() ([]Migration, error) {
-	return nil, nil
+	entries, err := fs.ReadDir(migrationsFS, "migrations")
+	if err != nil {
+		return nil, err
+	}
+
+	migrations := make([]Migration, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
+			continue
+		}
+
+		version := strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
+		contents, err := migrationsFS.ReadFile(filepath.Join("migrations", entry.Name()))
+		if err != nil {
+			return nil, err
+		}
+
+		migrations = append(migrations, Migration{
+			Version: version,
+			SQL:     string(contents),
+		})
+	}
+
+	return migrations, nil
 }
 
 func RunMigrationsFromFS(fsys embed.FS) error {
