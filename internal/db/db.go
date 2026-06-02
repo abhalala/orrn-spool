@@ -5,6 +5,7 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -27,6 +28,16 @@ type Config struct {
 func Init(cfg Config) error {
 	var initErr error
 	once.Do(func() {
+		if cfg.Path != ":memory:" {
+			dbDir := filepath.Dir(cfg.Path)
+			if dbDir != "." && dbDir != "" {
+				if err := os.MkdirAll(dbDir, 0o755); err != nil {
+					initErr = fmt.Errorf("failed to create database directory %s: %w", dbDir, err)
+					return
+				}
+			}
+		}
+
 		db, initErr = sql.Open("sqlite3", cfg.Path)
 		if initErr != nil {
 			return

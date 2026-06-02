@@ -2,16 +2,20 @@ package main
 
 import (
     "context"
+    "encoding/json"
     "flag"
     "fmt"
     "log"
     "net/http"
     "os"
     "os/signal"
+    "strings"
     "syscall"
     "time"
 
     "github.com/gin-gonic/gin"
+    "golang.org/x/text/cases"
+    "golang.org/x/text/language"
 
     "github.com/orrn/spool/internal/ai"
     "github.com/orrn/spool/internal/api/handlers"
@@ -99,6 +103,25 @@ func main() {
     if err := router.SetTrustedProxies(nil); err != nil {
         log.Fatalf("set trusted proxies: %v", err)
     }
+    titleCaser := cases.Title(language.English)
+    router.SetFuncMap(map[string]any{
+        "title": func(value string) string {
+            return titleCaser.String(strings.ReplaceAll(value, "_", " "))
+        },
+        "json": func(value any) string {
+            data, err := json.Marshal(value)
+            if err != nil {
+                return "null"
+            }
+            return string(data)
+        },
+        "add": func(a, b int) int {
+            return a + b
+        },
+        "sub": func(a, b int) int {
+            return a - b
+        },
+    })
     router.LoadHTMLGlob("web/templates/**/*")
     router.Static("/static", "web/static")
 

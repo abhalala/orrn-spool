@@ -34,7 +34,7 @@
             </select>
             <p x-show="selectedPrinter && selectedPrinter.status !== 'online'" 
                class="mt-1 text-sm text-yellow-600">
-              Warning: Selected printer is currently {{ selectedPrinter?.status }}
+              Warning: Selected printer is currently <span x-text="selectedPrinter?.status"></span>
             </p>
           </div>
 
