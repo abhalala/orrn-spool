@@ -129,7 +129,20 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          path: dist
+          name: linux-amd64
+          path: dist/linux-amd64
+      - uses: actions/download-artifact@v4
+        with:
+          name: darwin-amd64
+          path: dist/darwin-amd64
+      - uses: actions/download-artifact@v4
+        with:
+          name: darwin-arm64
+          path: dist/darwin-arm64
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-amd64
+          path: dist/windows-amd64
       - name: Flatten artifacts
         run: |
           mkdir -p release
