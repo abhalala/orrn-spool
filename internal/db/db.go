@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
+	"path"
+"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -140,7 +141,7 @@ func loadMigrations() ([]Migration, error) {
 		}
 
 		version := strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
-		contents, err := migrationsFS.ReadFile(filepath.Join("migrations", entry.Name()))
+		contents, err := migrationsFS.ReadFile(path.Join("migrations", entry.Name()))
 		if err != nil {
 			return nil, err
 		}
