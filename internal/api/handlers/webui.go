@@ -352,5 +352,5 @@ func RegisterWebUIRoutes(router *gin.Engine, handler *WebUIHandler) {
 	router.GET("/", handler.Dashboard)
 	router.GET("/dashboard", handler.Dashboard)
 	router.GET("/api/dashboard/stats", handler.GetDashboardStats)
-	router.GET("/api/printers/:id/status", handler.GetPrinterStatusCard)
+	router.GET("/ui/printers/:id/status", handler.GetPrinterStatusCard)
 }

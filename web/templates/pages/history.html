@@ -159,6 +159,76 @@
   </div>
 </div>
 
+<script>
+function historyPage() {
+  return {
+    selectedJobs: [],
+    selectAll: false,
+    sortField: 'submitted',
+    sortDir: 'desc',
+    filters: {
+      printer: '',
+      status: '',
+      dateFrom: '',
+      dateTo: '',
+      search: ''
+    },
+    toggleSelectAll() {
+      if (this.selectAll) {
+        this.selectedJobs = {{ .JobIDs }};
+      } else {
+        this.selectedJobs = [];
+      }
+    },
+    sortBy(field) {
+      if (this.sortField === field) {
+        this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        this.sortField = field;
+        this.sortDir = 'asc';
+      }
+      this.applyFilters();
+    },
+    applyFilters() {
+      const params = new URLSearchParams(this.filters);
+      params.set('sort', this.sortField);
+      params.set('dir', this.sortDir);
+      htmx.trigger('#history-table', 'filters-changed');
+    },
+    clearFilters() {
+      this.filters = {
+        printer: '',
+        status: '',
+        dateFrom: '',
+        dateTo: '',
+        search: ''
+      };
+      this.applyFilters();
+    },
+    openDetail(jobId) {
+      htmx.ajax('GET', `/jobs/${jobId}/detail-modal`, '#modal-container');
+    },
+    exportCSV() {
+      const params = new URLSearchParams(this.filters);
+      window.location.href = `/api/jobs/export?${params.toString()}`;
+    },
+    async reprintSelected() {
+      if (this.selectedJobs.length === 0) return;
+      const response = await fetch('/api/jobs/batch-reprint', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ job_ids: this.selectedJobs })
+      });
+      if (response.ok) {
+        this.selectedJobs = [];
+        htmx.trigger('#history-table', 'filters-changed');
+      }
+    }
+  }
+}
+</script>
+{{ end }}
+
 {{ define "history-table" }}
 <div class="overflow-x-auto">
   <table class="min-w-full divide-y divide-gray-200">
@@ -297,74 +367,4 @@
   </div>
 </div>
 {{ end }}
-{{ end }}
-
-<script>
-function historyPage() {
-  return {
-    selectedJobs: [],
-    selectAll: false,
-    sortField: 'submitted',
-    sortDir: 'desc',
-    filters: {
-      printer: '',
-      status: '',
-      dateFrom: '',
-      dateTo: '',
-      search: ''
-    },
-    toggleSelectAll() {
-      if (this.selectAll) {
-        this.selectedJobs = {{ .JobIDs }};
-      } else {
-        this.selectedJobs = [];
-      }
-    },
-    sortBy(field) {
-      if (this.sortField === field) {
-        this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
-      } else {
-        this.sortField = field;
-        this.sortDir = 'asc';
-      }
-      this.applyFilters();
-    },
-    applyFilters() {
-      const params = new URLSearchParams(this.filters);
-      params.set('sort', this.sortField);
-      params.set('dir', this.sortDir);
-      htmx.trigger('#history-table', 'filters-changed');
-    },
-    clearFilters() {
-      this.filters = {
-        printer: '',
-        status: '',
-        dateFrom: '',
-        dateTo: '',
-        search: ''
-      };
-      this.applyFilters();
-    },
-    openDetail(jobId) {
-      htmx.ajax('GET', `/jobs/${jobId}/detail-modal`, '#modal-container');
-    },
-    exportCSV() {
-      const params = new URLSearchParams(this.filters);
-      window.location.href = `/api/jobs/export?${params.toString()}`;
-    },
-    async reprintSelected() {
-      if (this.selectedJobs.length === 0) return;
-      const response = await fetch('/api/jobs/batch-reprint', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ job_ids: this.selectedJobs })
-      });
-      if (response.ok) {
-        this.selectedJobs = [];
-        htmx.trigger('#history-table', 'filters-changed');
-      }
-    }
-  }
-}
-</script>
 {{ end }}

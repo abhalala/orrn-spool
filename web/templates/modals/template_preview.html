@@ -31,7 +31,7 @@
           <div x-show="template.variables && template.variables.length > 0" class="space-y-2">
             <template x-for="variable in template.variables" :key="variable.name">
               <div class="flex items-center space-x-3 p-2 border rounded bg-gray-50">
-                <span class="font-mono text-purple-600 text-sm" x-text="'{{' + variable.name + '}}'"></span>
+                <span class="font-mono text-purple-600 text-sm" x-text="'{{"{{"}}' + variable.name + '{{"}}"}}'"></span>
                 <span x-show="variable.required" class="px-1 text-xs bg-red-100 text-red-700 rounded">Required</span>
                 <input type="text" 
                        x-model="variableValues[variable.name]" 

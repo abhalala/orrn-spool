@@ -56,7 +56,7 @@
           <template x-for="(variable, index) in detectedVariables" :key="variable.name">
             <div class="border rounded p-2 text-sm">
               <div class="flex justify-between items-center">
-                <span class="font-mono text-purple-600" x-text="'{{' + variable.name + '}}'"></span>
+                <span class="font-mono text-purple-600" x-text="'{{"{{"}}' + variable.name + '{{"}}"}}'"></span>
                 <label class="flex items-center">
                   <input type="checkbox" x-model="variable.required" class="mr-1">
                   <span class="text-xs text-gray-500">Required</span>
@@ -66,7 +66,7 @@
             </div>
           </template>
           <div x-show="detectedVariables.length === 0" class="text-xs text-gray-400 italic">
-            Use {{variable}} syntax in content to define variables
+            Use {{"{{"}}variable{{"}}"}} syntax in content to define variables
           </div>
         </div>
       </div>
@@ -143,7 +143,7 @@
               <div>
                 <label class="block text-sm font-medium text-gray-600">Content</label>
                 <input type="text" x-model="selectedElement.content" @input="detectVariables(); updatePreview()" 
-                       class="w-full border rounded p-2 text-sm" placeholder="Use {{variable}} for dynamic text">
+                       class="w-full border rounded p-2 text-sm" placeholder="Use {{"{{"}}variable{{"}}"}} for dynamic text">
               </div>
             </template>
             

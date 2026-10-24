@@ -78,6 +78,20 @@
   </div>
 </div>
 
+<script>
+function queuePage() {
+  return {
+    init() {
+      const es = new EventSource('/api/events/queue');
+      es.onmessage = (event) => {
+        htmx.trigger('#queue-content', 'queue-updated');
+      };
+    }
+  }
+}
+</script>
+{{ end }}
+
 {{ define "queue-sections" }}
 <div class="space-y-6">
   <div class="bg-white rounded-lg shadow">
@@ -253,18 +267,4 @@
   </div>
   {{ end }}
 </div>
-{{ end }}
-
-<script>
-function queuePage() {
-  return {
-    init() {
-      const es = new EventSource('/api/events/queue');
-      es.onmessage = (event) => {
-        htmx.trigger('#queue-content', 'queue-updated');
-      };
-    }
-  }
-}
-</script>
 {{ end }}
