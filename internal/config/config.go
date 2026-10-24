@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/orrn/spool/internal/scale"
 )
 
 type Config struct {
@@ -15,6 +17,24 @@ type Config struct {
 	Printers PrintersConfig `yaml:"printers"`
 	Queue    QueueConfig    `yaml:"queue"`
 	Logging  LoggingConfig  `yaml:"logging"`
+	Scale    scale.Config   `yaml:"scale"`
+	ORRN     ORRNConfig     `yaml:"orrn"`
+}
+
+// ORRNConfig links this spool to its ORRN edge-node deployment. The install
+// script writes these as ORRN_SPOOL_* environment variables.
+type ORRNConfig struct {
+	// InstanceID is the deployment's instance id (ORRN_SPOOL_INSTANCE_ID).
+	InstanceID string `yaml:"instance_id"`
+	// Subdomain is the node subdomain (ORRN_SPOOL_SUBDOMAIN).
+	Subdomain string `yaml:"subdomain"`
+	// ServerURL is ORRN's API origin (ORRN_SPOOL_SERVER_URL).
+	ServerURL string `yaml:"server_url"`
+	// SharedSecret signs and verifies ORRN machine requests
+	// (ORRN_SPOOL_SHARED_SECRET). Empty turns ORRN HMAC auth off.
+	SharedSecret string `yaml:"shared_secret"`
+	// HeartbeatInterval between POSTs to ORRN; 0 means 60s.
+	HeartbeatInterval time.Duration `yaml:"heartbeat_interval"`
 }
 
 type ServerConfig struct {
@@ -81,6 +101,7 @@ func Load(configPath string) (*Config, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			cfg.ApplyDeviceEnv(os.Getenv)
 			return cfg, nil
 		}
 		return nil, fmt.Errorf("failed to read config file: %w", err)
@@ -90,7 +111,42 @@ func Load(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
+	cfg.ApplyDeviceEnv(os.Getenv)
 	return cfg, nil
+}
+
+// ApplyDeviceEnv overlays the scale and ORRN link settings from the
+// environment (the install script writes ORRN_SPOOL_*; SPOOL_SCALE_* is for
+// the scale). Set variables win over config.yaml.
+func (c *Config) ApplyDeviceEnv(getenv func(string) string) {
+	if v := getenv("SPOOL_SCALE_DEVICE"); v != "" {
+		c.Scale.Device = v
+	}
+	if v := getenv("SPOOL_SCALE_BAUD"); v != "" {
+		if baud, err := strconv.Atoi(v); err == nil {
+			c.Scale.Baud = baud
+		}
+	}
+	if v := getenv("SPOOL_SCALE_FRAME"); v != "" {
+		c.Scale.Frame = v
+	}
+	if v := getenv("SPOOL_SCALE_SIMULATE"); v != "" {
+		if on, err := strconv.ParseBool(v); err == nil {
+			c.Scale.Simulate = on
+		}
+	}
+	if v := getenv("ORRN_SPOOL_INSTANCE_ID"); v != "" {
+		c.ORRN.InstanceID = v
+	}
+	if v := getenv("ORRN_SPOOL_SUBDOMAIN"); v != "" {
+		c.ORRN.Subdomain = v
+	}
+	if v := getenv("ORRN_SPOOL_SERVER_URL"); v != "" {
+		c.ORRN.ServerURL = v
+	}
+	if v := getenv("ORRN_SPOOL_SHARED_SECRET"); v != "" {
+		c.ORRN.SharedSecret = v
+	}
 }
 
 func LoadFromEnv() *Config {
@@ -181,6 +237,14 @@ func (c *Config) Validate() error {
 
 	if !validFormats[c.Logging.Format] {
 		return fmt.Errorf("invalid log format: %s (valid: json, text, plain)", c.Logging.Format)
+	}
+
+	if err := c.Scale.Validate(); err != nil {
+		return err
+	}
+
+	if c.ORRN.HeartbeatInterval < 0 {
+		return fmt.Errorf("orrn heartbeat interval must be non-negative")
 	}
 
 	return nil

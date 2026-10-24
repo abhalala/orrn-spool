@@ -24,19 +24,45 @@ import (
     "github.com/orrn/spool/internal/config"
     "github.com/orrn/spool/internal/core"
     "github.com/orrn/spool/internal/db"
+    "github.com/orrn/spool/internal/heartbeat"
+    "github.com/orrn/spool/internal/scale"
     "github.com/orrn/spool/internal/webhook"
 )
 
+// Version is set at build time with -ldflags "-X main.Version=...".
+var Version = "dev"
+
 func main() {
     configPath := flag.String("config", "config.yaml", "Path to spool config")
+    scaleSim := flag.Bool("scale-sim", false, "Serve simulated scale frames instead of opening scale.device")
     flag.Parse()
 
     cfg, err := config.Load(*configPath)
     if err != nil {
         log.Fatalf("load config: %v", err)
     }
+    if *scaleSim {
+        cfg.Scale.Simulate = true
+    }
     if err := cfg.Validate(); err != nil {
         log.Fatalf("validate config: %v", err)
+    }
+
+    runCtx, stopRun := context.WithCancel(context.Background())
+    defer stopRun()
+
+    var scaleService *scale.Service
+    if cfg.Scale.Configured() {
+        scaleService, err = scale.NewService(cfg.Scale)
+        if err != nil {
+            log.Fatalf("init scale: %v", err)
+        }
+        go scaleService.Run(runCtx)
+        if cfg.Scale.Simulate {
+            log.Printf("scale: simulator on")
+        } else {
+            log.Printf("scale: reading %s (receive only)", cfg.Scale.Device)
+        }
     }
 
     if err := db.Init(db.Config{Path: cfg.Database.Path}); err != nil {
@@ -48,6 +74,31 @@ func main() {
     authMiddleware, err := apimw.NewAuthMiddleware(database)
     if err != nil {
         log.Fatalf("init auth middleware: %v", err)
+    }
+    if verifier := apimw.NewORRNVerifier(cfg.ORRN.SharedSecret); verifier != nil {
+        authMiddleware.SetORRNVerifier(verifier)
+        log.Printf("auth: ORRN machine tokens accepted")
+    }
+
+    hb := heartbeat.Config{
+        ServerURL:    cfg.ORRN.ServerURL,
+        InstanceID:   cfg.ORRN.InstanceID,
+        Subdomain:    cfg.ORRN.Subdomain,
+        SharedSecret: cfg.ORRN.SharedSecret,
+        Version:      Version,
+        Interval:     cfg.ORRN.HeartbeatInterval,
+        Scale: func() heartbeat.ScalePresence {
+            st := scaleService.Status()
+            return heartbeat.ScalePresence{
+                Configured:  st.Configured,
+                Simulated:   st.Simulated,
+                Connected:   st.Connected,
+                LastFrameAt: st.LastFrameAt,
+            }
+        },
+    }
+    if hb.Enabled() {
+        go heartbeat.New(hb).Run(runCtx)
     }
 
     encryptionKey, err := apimw.GetEncryptionKey(database)
@@ -169,6 +220,10 @@ func main() {
         api.POST("/printers/:id/resume", printerHandler.ResumePrinter)
         api.GET("/printers/:id/counters", printerHandler.GetPrinterCounters)
     }
+
+    scaleRoutes := router.Group("/")
+    scaleRoutes.Use(authMiddleware.RequireAuth())
+    handlers.NewScaleHandler(scaleService).RegisterRoutes(scaleRoutes)
 
     jobHandler.RegisterLegacyRoutes(router)
 

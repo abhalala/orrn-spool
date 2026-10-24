@@ -31,6 +31,41 @@ type Claims struct {
 type AuthMiddleware struct {
 	db     *sql.DB
 	secret []byte
+	orrn   *ORRNVerifier
+}
+
+// SetORRNVerifier turns on ORRN's "Bearer v1:<ts>:<hmac>" machine auth next to
+// the JWT. A nil verifier (no shared secret configured) leaves it off.
+func (a *AuthMiddleware) SetORRNVerifier(v *ORRNVerifier) {
+	a.orrn = v
+}
+
+// orrnToken returns the v1 machine token from the Authorization header, if any.
+func orrnToken(c *gin.Context) (string, bool) {
+	authHeader := c.GetHeader("Authorization")
+	if !strings.HasPrefix(authHeader, "Bearer "+ORRNTokenPrefix) {
+		return "", false
+	}
+	return strings.TrimPrefix(authHeader, "Bearer "), true
+}
+
+// authenticateORRN verifies a v1 machine token. It buffers the body so the
+// handler can still read it.
+func (a *AuthMiddleware) authenticateORRN(c *gin.Context, token string) bool {
+	if a.orrn == nil {
+		return false
+	}
+	body, replacement, err := readBody(c.Request.Body)
+	if err != nil {
+		return false
+	}
+	c.Request.Body = replacement
+	if err := a.orrn.Verify(c.Request.Method, c.Request.URL.RequestURI(), body, token); err != nil {
+		return false
+	}
+	c.Set("authenticated", true)
+	c.Set("auth_scheme", "orrn-hmac")
+	return true
 }
 
 type LoginRequest struct {
@@ -280,6 +315,15 @@ func (a *AuthMiddleware) SetupHandler(c *gin.Context) {
 
 func (a *AuthMiddleware) RequireAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if machineToken, ok := orrnToken(c); ok {
+			if !a.authenticateORRN(c, machineToken) {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+				return
+			}
+			c.Next()
+			return
+		}
+
 		token := a.getTokenFromRequest(c)
 		if token == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
