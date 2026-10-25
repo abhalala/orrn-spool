@@ -20,6 +20,9 @@ type CreateJobRequest struct {
 	Variables  map[string]string `json:"variables" binding:"required"`
 	Copies     int               `json:"copies"`
 	Priority   int               `json:"priority"`
+	// JobKey makes the submission exactly-once; see docs/print-exactly-once.md.
+	// The Idempotency-Key header is accepted as an alternative.
+	JobKey string `json:"job_key"`
 }
 
 type JobResponse struct {
@@ -109,6 +112,21 @@ func (h *JobHandler) CreateJob(c *gin.Context) {
 		req.Copies = 1
 	}
 
+	jobKey, ok := jobKeyFromRequest(c, req.JobKey)
+	if !ok {
+		return
+	}
+	variablesJSON, err := json.Marshal(req.Variables)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to serialize variables"})
+		return
+	}
+	// A repeated key returns the first job even if the printer has since gone
+	// offline: the label was already queued, so it must not be refused or reprinted.
+	if replayDuplicateJob(c, jobKey, req.PrinterID, req.TemplateID, string(variablesJSON), req.Copies) {
+		return
+	}
+
 	printer, err := db.Printers.GetPrinterByID(c.Request.Context(), req.PrinterID)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -145,12 +163,6 @@ func (h *JobHandler) CreateJob(c *gin.Context) {
 		return
 	}
 
-	variablesJSON, err := json.Marshal(req.Variables)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to serialize variables"})
-		return
-	}
-
 	clientIP := c.ClientIP()
 
 	job := &core.Job{
@@ -161,18 +173,29 @@ func (h *JobHandler) CreateJob(c *gin.Context) {
 		Copies:        req.Copies,
 		SubmittedBy:   clientIP,
 		Status:        core.JobStatusPending,
+		JobKey:        jobKey,
 	}
 
-	jobID, err := h.queue.Enqueue(job)
+	jobID, created, err := h.queue.EnqueueOnce(job)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to enqueue job"})
 		return
 	}
+	if !created {
+		// Lost a race with a concurrent submit of the same key.
+		replayExistingJob(c, jobID, jobKey)
+		return
+	}
 
-	c.JSON(http.StatusCreated, gin.H{
-		"id":      jobID,
-		"message": "job submitted successfully",
-	})
+	resp := gin.H{
+		"id":        jobID,
+		"message":   "job submitted successfully",
+		"duplicate": false,
+	}
+	if jobKey != "" {
+		resp["job_key"] = jobKey
+	}
+	c.JSON(http.StatusCreated, resp)
 }
 
 func (h *JobHandler) ListJobs(c *gin.Context) {

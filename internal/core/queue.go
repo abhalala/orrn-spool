@@ -34,6 +34,8 @@ type Job struct {
 	Copies        int
 	ErrorMessage  string
 	SubmittedBy   string
+	// JobKey is the client-provided exactly-once key; empty means none.
+	JobKey      string
 	CreatedAt     time.Time
 	StartedAt     *time.Time
 	CompletedAt   *time.Time
@@ -350,6 +352,14 @@ func (q *Queue) incrementPrintCounter(printerID int64, count int) {
 }
 
 func (q *Queue) Enqueue(job *Job) (int64, error) {
+	id, _, err := q.EnqueueOnce(job)
+	return id, err
+}
+
+// EnqueueOnce inserts the job unless job.JobKey is set and already stored, in
+// which case it returns the first job's id and created=false. Two concurrent
+// calls with the same key are safe: the unique index lets exactly one insert win.
+func (q *Queue) EnqueueOnce(job *Job) (id int64, created bool, err error) {
 	if job.MaxRetries == 0 {
 		job.MaxRetries = q.config.MaxRetries
 	}
@@ -357,17 +367,34 @@ func (q *Queue) Enqueue(job *Job) (int64, error) {
 		job.Status = JobStatusPending
 	}
 
+	var key any
+	if job.JobKey != "" {
+		key = job.JobKey
+		existing, found, lookupErr := q.jobIDByKey(job.JobKey)
+		if lookupErr != nil {
+			return 0, false, lookupErr
+		}
+		if found {
+			return existing, false, nil
+		}
+	}
+
 	result, err := q.db.Exec(`
-		INSERT INTO print_jobs (printer_id, template_id, variables_json, tspl_content, status, priority, copies, submitted_by)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, job.PrinterID, job.TemplateID, job.VariablesJSON, job.TSPLContent, job.Status, job.Priority, job.Copies, job.SubmittedBy)
+		INSERT INTO print_jobs (printer_id, template_id, variables_json, tspl_content, status, priority, copies, submitted_by, job_key)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, job.PrinterID, job.TemplateID, job.VariablesJSON, job.TSPLContent, job.Status, job.Priority, job.Copies, job.SubmittedBy, key)
 	if err != nil {
-		return 0, fmt.Errorf("failed to insert job: %w", err)
+		if job.JobKey != "" {
+			if existing, found, lookupErr := q.jobIDByKey(job.JobKey); lookupErr == nil && found {
+				return existing, false, nil
+			}
+		}
+		return 0, false, fmt.Errorf("failed to insert job: %w", err)
 	}
 
 	jobID, err := result.LastInsertId()
 	if err != nil {
-		return 0, fmt.Errorf("failed to get job id: %w", err)
+		return 0, false, fmt.Errorf("failed to get job id: %w", err)
 	}
 
 	select {
@@ -375,7 +402,19 @@ func (q *Queue) Enqueue(job *Job) (int64, error) {
 	default:
 	}
 
-	return jobID, nil
+	return jobID, true, nil
+}
+
+func (q *Queue) jobIDByKey(key string) (int64, bool, error) {
+	var id int64
+	err := q.db.QueryRow("SELECT id FROM print_jobs WHERE job_key = ?", key).Scan(&id)
+	if err == sql.ErrNoRows {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("failed to look up job key: %w", err)
+	}
+	return id, true, nil
 }
 
 func (q *Queue) Dequeue() (*Job, error) {

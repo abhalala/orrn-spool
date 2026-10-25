@@ -75,33 +75,35 @@ const (
 )
 
 const (
+	jobColumns = `id, COALESCE(printer_id, 0), COALESCE(template_id, 0), COALESCE(variables_json, ''), COALESCE(tspl_content, ''), status, priority, retry_count, COALESCE(error_message, ''), copies, COALESCE(submitted_by, ''), created_at, started_at, completed_at`
+
 	InsertJob = `
 		INSERT INTO print_jobs (printer_id, template_id, variables_json, tspl_content, priority, copies, submitted_by)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`
 
 	GetJobByID = `
-		SELECT id, printer_id, template_id, variables_json, tspl_content, status, priority, retry_count, error_message, copies, submitted_by, created_at, started_at, completed_at
+		SELECT ` + jobColumns + `
 		FROM print_jobs WHERE id = ?
 	`
 
 	GetJobsByStatus = `
-		SELECT id, printer_id, template_id, variables_json, tspl_content, status, priority, retry_count, error_message, copies, submitted_by, created_at, started_at, completed_at
+		SELECT ` + jobColumns + `
 		FROM print_jobs WHERE status = ? ORDER BY priority DESC, created_at ASC LIMIT ?
 	`
 
 	GetJobsByPrinter = `
-		SELECT id, printer_id, template_id, variables_json, tspl_content, status, priority, retry_count, error_message, copies, submitted_by, created_at, started_at, completed_at
+		SELECT ` + jobColumns + `
 		FROM print_jobs WHERE printer_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?
 	`
 
 	ListJobs = `
-		SELECT id, printer_id, template_id, variables_json, tspl_content, status, priority, retry_count, error_message, copies, submitted_by, created_at, started_at, completed_at
+		SELECT ` + jobColumns + `
 		FROM print_jobs ORDER BY created_at DESC LIMIT ? OFFSET ?
 	`
 
 	ListJobsWithFilter = `
-		SELECT id, printer_id, template_id, variables_json, tspl_content, status, priority, retry_count, error_message, copies, submitted_by, created_at, started_at, completed_at
+		SELECT ` + jobColumns + `
 		FROM print_jobs WHERE status IN (?) ORDER BY created_at DESC LIMIT ? OFFSET ?
 	`
 
@@ -136,7 +138,7 @@ const (
 	`
 
 	GetJobsForArchival = `
-		SELECT id, printer_id, template_id, variables_json, tspl_content, status, priority, retry_count, error_message, copies, submitted_by, created_at, started_at, completed_at
+		SELECT ` + jobColumns + `
 		FROM print_jobs WHERE status IN ('completed', 'failed', 'cancelled') AND completed_at < datetime('now', ?)
 	`
 )

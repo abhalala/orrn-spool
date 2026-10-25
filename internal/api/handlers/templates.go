@@ -82,6 +82,8 @@ type QuickPrintRequest struct {
 	PrinterID int64             `json:"printer_id" binding:"required"`
 	Variables map[string]string `json:"variables" binding:"required"`
 	Copies    int               `json:"copies"`
+	// JobKey makes the print exactly-once; see docs/print-exactly-once.md.
+	JobKey string `json:"job_key"`
 }
 
 type QuickPrintResponse struct {
@@ -417,6 +419,21 @@ func (h *TemplateHandler) PrintTemplate(c *gin.Context) {
 		return
 	}
 
+	jobKey, ok := jobKeyFromRequest(c, req.JobKey)
+	if !ok {
+		return
+	}
+	if jobKey != "" {
+		copies := req.Copies
+		if copies < 1 {
+			copies = 1
+		}
+		keyVars, _ := json.Marshal(req.Variables)
+		if replayDuplicateJob(c, jobKey, req.PrinterID, id, string(keyVars), copies) {
+			return
+		}
+	}
+
 	_, err = db.Printers.GetPrinterByID(c.Request.Context(), req.PrinterID)
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, gin.H{"error": "printer not found"})
@@ -457,11 +474,16 @@ func (h *TemplateHandler) PrintTemplate(c *gin.Context) {
 		TSPLContent:   tsplContent,
 		Copies:        copies,
 		Status:        core.JobStatusPending,
+		JobKey:        jobKey,
 	}
 
-	jobID, err := h.queue.Enqueue(job)
+	jobID, created, err := h.queue.EnqueueOnce(job)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to enqueue job"})
+		return
+	}
+	if !created {
+		replayExistingJob(c, jobID, jobKey)
 		return
 	}
 

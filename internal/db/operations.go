@@ -224,6 +224,25 @@ func (o *JobOperations) GetJobByID(ctx context.Context, id int64) (*PrintJob, er
 	return j, nil
 }
 
+// GetJobByKey returns the job stored under a client-provided job key, or
+// sql.ErrNoRows when no job carries it.
+func (o *JobOperations) GetJobByKey(ctx context.Context, key string) (*PrintJob, error) {
+	rows, err := GetDB().QueryContext(ctx, `
+		SELECT `+jobColumns+` FROM print_jobs WHERE job_key = ?`, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get job by key: %w", err)
+	}
+	defer rows.Close()
+	jobs, err := scanJobs(rows)
+	if err != nil {
+		return nil, err
+	}
+	if len(jobs) == 0 {
+		return nil, sql.ErrNoRows
+	}
+	return jobs[0], nil
+}
+
 func (o *JobOperations) GetJobsByStatus(ctx context.Context, status string, limit, offset int) ([]*PrintJob, error) {
 	rows, err := GetDB().QueryContext(ctx, GetJobsByStatus, status, limit)
 	if err != nil {
@@ -312,7 +331,7 @@ func (o *JobOperations) ListJobs(ctx context.Context, filter JobFilter) ([]*Prin
 		orderDir = filter.OrderDir
 	}
 
-	query := "SELECT id, printer_id, template_id, variables_json, tspl_content, status, priority, retry_count, error_message, copies, submitted_by, created_at, started_at, completed_at FROM print_jobs"
+	query := "SELECT "+jobColumns+" FROM print_jobs"
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
