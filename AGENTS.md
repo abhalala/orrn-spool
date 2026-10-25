@@ -143,6 +143,27 @@ Templates use Go `html/template` with HTMX for interactivity:
 - Modals: `web/templates/modals/`
 - Partials: `web/templates/partials/`
 
+All files are parsed into ONE template set (`LoadHTMLGlob`), so every
+`{{ define "x" }}` name must be unique across files. A define that reuses a name
+(the old `content` and `modal-content`) silently overrides the other file.
+
+- A page `pages/foo.html` defines `foo-content` (its body) and `foo`
+  (`layout-head` + `foo-content` + `layout-foot`). The handler calls
+  `c.HTML(code, "foo", data)`.
+- Fragments HTMX refreshes (`printers-grid`, `queue-sections`, `history-table`,
+  `audit-table`, `printer-card`) are their own defines in the same file.
+- Modals define a unique name (`printer-form`, `job-detail`, ...).
+- Page data embeds `handlers.PageBase` (Title, Active, Authenticated, Toasts)
+  because the layout and sidebar read those fields.
+- `cmd/spool/templates_test.go` fails on duplicate defines, unresolved
+  `{{ template }}` references, a `c.HTML` name with no template, and renders
+  every page with sample data. Add a render case when you add a handler.
+- `handlers.TemplateFuncs()` `json` returns `template.JS`, so
+  `{{ .X | json }}` yields an object inside scripts and Alpine attributes.
+- HTMX forms and buttons talk to the JSON API: `<body hx-ext="json-enc">`
+  sends JSON, and `HTMXFragments` (middleware on `/api`) swaps the JSON reply
+  of a successful HTMX call for the HTML of the element in `HX-Target`.
+
 HTMX attributes for real-time updates:
 ```html
 <div hx-get="/api/endpoint" hx-trigger="every 30s">

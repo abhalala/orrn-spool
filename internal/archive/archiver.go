@@ -168,7 +168,7 @@ type archivedJob struct {
 
 func (a *Archiver) getJobsForArchival(cutoff time.Time) ([]*archivedJob, error) {
 	rows, err := a.db.Query(`
-		SELECT id, printer_id, template_id, variables_json, tspl_content, status, priority, retry_count, error_message, copies, submitted_by, created_at, started_at, completed_at
+		SELECT id, COALESCE(printer_id, 0), COALESCE(template_id, 0), variables_json, tspl_content, status, priority, retry_count, COALESCE(error_message, ''), copies, submitted_by, created_at, started_at, completed_at
 		FROM print_jobs
 		WHERE status IN ('completed', 'failed', 'cancelled')
 		AND completed_at IS NOT NULL
@@ -531,7 +531,7 @@ func (a *Archiver) RestoreJobFromArchive(ctx context.Context, originalID int64) 
 
 	var job archivedJob
 	err = archiveDB.QueryRow(`
-		SELECT id, printer_id, template_id, variables_json, tspl_content, status, priority, retry_count, error_message, copies, submitted_by, created_at, started_at, completed_at
+		SELECT id, COALESCE(printer_id, 0), COALESCE(template_id, 0), variables_json, tspl_content, status, priority, retry_count, COALESCE(error_message, ''), copies, submitted_by, created_at, started_at, completed_at
 		FROM print_jobs WHERE id = ?
 	`, originalID).Scan(
 		&job.ID, &job.PrinterID, &job.TemplateID, &job.VariablesJSON, &job.TSPLContent,

@@ -1,4 +1,4 @@
-{{ define "content" }}
+{{ define "queue-content" }}
 <div class="space-y-6" x-data="queuePage()">
   <div class="flex justify-between items-center">
     <div>
@@ -81,12 +81,7 @@
 <script>
 function queuePage() {
   return {
-    init() {
-      const es = new EventSource('/api/events/queue');
-      es.onmessage = (event) => {
-        htmx.trigger('#queue-content', 'queue-updated');
-      };
-    }
+    init() {}
   }
 }
 </script>
@@ -268,3 +263,5 @@ function queuePage() {
   {{ end }}
 </div>
 {{ end }}
+
+{{ define "queue" }}{{ template "layout-head" . }}{{ template "queue-content" . }}{{ template "layout-foot" . }}{{ end }}

@@ -144,22 +144,26 @@ func main() {
     aiHandler := handlers.NewAIHandler(geminiClient, database, encryptionKey)
     archiveHandler := handlers.NewArchiveHandler(archiver, database)
     settingsHandler := handlers.NewSettingsHandler(database, cfg)
-    webUIHandler := handlers.NewWebUIHandler(database, queue, printerManager)
+    webUIHandler := handlers.NewWebUIHandler(database, queue, printerManager).WithDeps(handlers.WebUIDeps{
+        Config:   cfg,
+        Archiver: archiver,
+        AI:       geminiClient,
+    })
 
     router := gin.Default()
     if err := router.SetTrustedProxies(nil); err != nil {
         log.Fatalf("set trusted proxies: %v", err)
     }
-    router.SetFuncMap(templateFuncs())
+    router.SetFuncMap(handlers.TemplateFuncs())
     router.LoadHTMLGlob("web/templates/**/*")
     router.Static("/static", "web/static")
 
     router.GET("/health", func(c *gin.Context) {
         c.JSON(http.StatusOK, gin.H{"status": "ok"})
     })
-    router.GET("/login", func(c *gin.Context) {
-        c.HTML(http.StatusOK, "login.html", gin.H{})
-    })
+    router.GET("/login", authMiddleware.LoginPage)
+    router.POST("/login", authMiddleware.LoginForm)
+    router.POST("/logout", authMiddleware.LogoutRedirect)
 
     authRoutes := router.Group("/api/auth")
     {
@@ -170,16 +174,12 @@ func main() {
     }
 
     protectedPages := router.Group("/")
-    protectedPages.Use(authMiddleware.RequireAuth())
-    {
-        protectedPages.GET("/", webUIHandler.Dashboard)
-        protectedPages.GET("/dashboard", webUIHandler.Dashboard)
-        protectedPages.GET("/api/dashboard/stats", webUIHandler.GetDashboardStats)
-        protectedPages.GET("/ui/printers/:id/status", webUIHandler.GetPrinterStatusCard)
-    }
+    protectedPages.Use(authMiddleware.RequirePageAuth())
+    webUIHandler.RegisterPages(protectedPages)
 
     api := router.Group("/api")
     api.Use(authMiddleware.RequireAuth())
+    api.Use(webUIHandler.HTMXFragments())
     {
         handlers.RegisterTemplateRoutes(api, templateHandler)
         handlers.RegisterAIRoutes(api, aiHandler)

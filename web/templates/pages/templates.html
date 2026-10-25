@@ -1,4 +1,4 @@
-{{ define "content" }}
+{{ define "templates-content" }}
 <div class="space-y-6" x-data="templatesPage()">
   <div class="flex justify-between items-center">
     <h1 class="text-2xl font-bold text-gray-900">Label Templates</h1>
@@ -107,11 +107,11 @@
 function templatesPage() {
   return {
     init() {
-      htmx.on('template-saved', () => {
-        htmx.trigger('#templates-grid', 'refresh');
-      });
+      htmx.on('template-saved', () => window.location.reload());
     }
   }
 }
 </script>
 {{ end }}
+
+{{ define "templates" }}{{ template "layout-head" . }}{{ template "templates-content" . }}{{ template "layout-foot" . }}{{ end }}

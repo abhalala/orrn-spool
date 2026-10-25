@@ -175,12 +175,19 @@ func (a *AuthMiddleware) getTokenFromRequest(c *gin.Context) string {
 	return ""
 }
 
+// secureCookie reports whether the session cookie may carry the Secure flag.
+// The spool is normally reached over plain http on the plant LAN, where a
+// browser silently drops Secure cookies and nobody could stay signed in.
+func secureCookie(c *gin.Context) bool {
+	return c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
+}
+
 func (a *AuthMiddleware) setAuthCookie(c *gin.Context, token string) {
-	c.SetCookie(cookieName, token, int(tokenDuration.Seconds()), "/", "", true, true)
+	c.SetCookie(cookieName, token, int(tokenDuration.Seconds()), "/", "", secureCookie(c), true)
 }
 
 func (a *AuthMiddleware) clearAuthCookie(c *gin.Context) {
-	c.SetCookie(cookieName, "", -1, "/", "", true, true)
+	c.SetCookie(cookieName, "", -1, "/", "", secureCookie(c), true)
 }
 
 func (a *AuthMiddleware) LoginHandler(c *gin.Context) {

@@ -317,11 +317,13 @@ function toggleApiKeyVisibility() {
           </div>
         </div>
         <div class="flex space-x-2">
-          <button hx-get="/api/archives/{{ .ID }}/download"
-                  class="text-primary-600 hover:text-primary-700 text-sm font-medium">
+          <a href="/api/archives/{{ .Filename }}/download" download
+             class="text-primary-600 hover:text-primary-700 text-sm font-medium">
             Download
-          </button>
-          <button hx-delete="/api/archives/{{ .ID }}"
+          </a>
+          <button hx-delete="/api/archives/{{ .Filename }}"
+                  hx-swap="none"
+                  hx-on::after-request="if (event.detail.successful) window.location.reload()"
                   hx-confirm="Delete this archive? This cannot be undone."
                   class="text-red-600 hover:text-red-700 text-sm font-medium">
             Delete
@@ -399,6 +401,15 @@ function toggleApiKeyVisibility() {
     </form>
   </div>
 
+  {{ template "audit-table" . }}
+
+  {{ if .Pagination }}
+  {{ template "pagination" .Pagination }}
+  {{ end }}
+</div>
+{{ end }}
+
+{{ define "audit-table" }}
   <div id="audit-table" class="bg-white rounded-lg shadow-md overflow-hidden">
     {{ if .AuditLogs }}
     <table class="w-full">
@@ -462,9 +473,4 @@ function toggleApiKeyVisibility() {
     </div>
     {{ end }}
   </div>
-
-  {{ if .Pagination }}
-  {{ template "pagination" .Pagination }}
-  {{ end }}
-</div>
 {{ end }}

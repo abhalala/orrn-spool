@@ -1,4 +1,4 @@
-{{ define "content" }}
+{{ define "history-content" }}
 <div class="space-y-6" x-data="historyPage()">
   <div class="flex justify-between items-center">
     <div>
@@ -175,7 +175,7 @@ function historyPage() {
     },
     toggleSelectAll() {
       if (this.selectAll) {
-        this.selectedJobs = {{ .JobIDs }};
+        this.selectedJobs = {{ .JobIDs | json }};
       } else {
         this.selectedJobs = [];
       }
@@ -193,7 +193,7 @@ function historyPage() {
       const params = new URLSearchParams(this.filters);
       params.set('sort', this.sortField);
       params.set('dir', this.sortDir);
-      htmx.trigger('#history-table', 'filters-changed');
+      htmx.ajax('GET', '/api/jobs/history-table?' + params.toString(), { target: '#history-table', swap: 'innerHTML' });
     },
     clearFilters() {
       this.filters = {
@@ -221,7 +221,7 @@ function historyPage() {
       });
       if (response.ok) {
         this.selectedJobs = [];
-        htmx.trigger('#history-table', 'filters-changed');
+        this.applyFilters();
       }
     }
   }
@@ -368,3 +368,5 @@ function historyPage() {
 </div>
 {{ end }}
 {{ end }}
+
+{{ define "history" }}{{ template "layout-head" . }}{{ template "history-content" . }}{{ template "layout-foot" . }}{{ end }}

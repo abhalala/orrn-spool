@@ -1,4 +1,4 @@
-{{ define "base" }}
+{{ define "layout-head" }}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -28,13 +28,36 @@
   </script>
   <script src="https://unpkg.com/htmx.org@1.9.10"></script>
   <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script>
+    // The JSON API takes JSON bodies; HTMX forms post urlencoded. This extension
+    // (enabled on <body>) sends every HTMX body as JSON, with number inputs as numbers.
+    if (window.htmx) {
+      htmx.defineExtension('json-enc', {
+        onEvent: function (name, evt) {
+          if (name === 'htmx:configRequest') evt.detail.headers['Content-Type'] = 'application/json';
+        },
+        encodeParameters: function (xhr, parameters, elt) {
+          xhr.overrideMimeType('text/json');
+          var out = {};
+          Object.keys(parameters).forEach(function (key) {
+            var value = parameters[key];
+            var field = elt.querySelector ? elt.querySelector('[name="' + key + '"]') : null;
+            out[key] = field && field.type === 'number' && value !== '' ? Number(value) : value;
+          });
+          return JSON.stringify(out);
+        }
+      });
+    }
+  </script>
   <link rel="stylesheet" href="/static/css/custom.css">
 </head>
-<body class="bg-gray-100" x-data="{ sidebarOpen: true }">
+<body class="bg-gray-100" hx-ext="json-enc" data-authenticated="{{ if .Authenticated }}true{{ end }}" x-data="{ sidebarOpen: true }">
   {{ template "sidebar" . }}
   
   <main class="ml-64 p-6 min-h-screen transition-all duration-300" :class="{ 'ml-64': sidebarOpen, 'ml-0': !sidebarOpen }">
-    {{ template "content" . }}
+{{ end }}
+
+{{ define "layout-foot" }}
   </main>
   
   {{ template "toasts" . }}

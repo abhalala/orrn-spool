@@ -102,4 +102,6 @@ type AuditFilter struct {
 	Action     string
 	EntityType string
 	EntityID   int64
+	FromDate   *time.Time
+	ToDate     *time.Time
 }

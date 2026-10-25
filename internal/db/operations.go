@@ -518,7 +518,8 @@ func (o *AuditOperations) CreateAuditLog(ctx context.Context, log *AuditLog) err
 	return nil
 }
 
-func (o *AuditOperations) ListAuditLogs(ctx context.Context, filter AuditFilter, limit, offset int) ([]*AuditLog, error) {
+// auditWhere builds the shared WHERE clause for listing and counting audit rows.
+func auditWhere(filter AuditFilter) (string, []interface{}) {
 	var conditions []string
 	var args []interface{}
 
@@ -534,11 +535,34 @@ func (o *AuditOperations) ListAuditLogs(ctx context.Context, filter AuditFilter,
 		conditions = append(conditions, "entity_id = ?")
 		args = append(args, filter.EntityID)
 	}
-
-	query := "SELECT id, action, entity_type, entity_id, details_json, ip_address, created_at FROM audit_log"
-	if len(conditions) > 0 {
-		query += " WHERE " + strings.Join(conditions, " AND ")
+	if filter.FromDate != nil {
+		conditions = append(conditions, "created_at >= ?")
+		args = append(args, *filter.FromDate)
 	}
+	if filter.ToDate != nil {
+		conditions = append(conditions, "created_at <= ?")
+		args = append(args, *filter.ToDate)
+	}
+	if len(conditions) == 0 {
+		return "", args
+	}
+	return " WHERE " + strings.Join(conditions, " AND "), args
+}
+
+// CountAuditLogs counts the audit rows a filter matches, for pagination.
+func (o *AuditOperations) CountAuditLogs(ctx context.Context, filter AuditFilter) (int, error) {
+	where, args := auditWhere(filter)
+	var n int
+	if err := GetDB().QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log"+where, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("failed to count audit logs: %w", err)
+	}
+	return n, nil
+}
+
+func (o *AuditOperations) ListAuditLogs(ctx context.Context, filter AuditFilter, limit, offset int) ([]*AuditLog, error) {
+	where, args := auditWhere(filter)
+
+	query := "SELECT id, action, COALESCE(entity_type, ''), COALESCE(entity_id, 0), COALESCE(details_json, ''), COALESCE(ip_address, ''), created_at FROM audit_log" + where
 	query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
 	args = append(args, limit, offset)
 

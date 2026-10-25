@@ -51,7 +51,7 @@ type JobSummary struct {
 }
 
 type DashboardData struct {
-	Title    string
+	PageBase
 	Stats    DashboardStats
 	Printers []PrinterWithStatus
 	Jobs     []JobSummary
@@ -61,6 +61,7 @@ type WebUIHandler struct {
 	db             *sql.DB
 	queue          *core.Queue
 	printerManager *core.PrinterManager
+	deps           WebUIDeps
 }
 
 func NewWebUIHandler(database *sql.DB, queue *core.Queue, printerManager *core.PrinterManager) *WebUIHandler {
@@ -73,7 +74,7 @@ func NewWebUIHandler(database *sql.DB, queue *core.Queue, printerManager *core.P
 
 func (h *WebUIHandler) Dashboard(c *gin.Context) {
 	data := DashboardData{
-		Title: "Dashboard",
+		PageBase: newPage("Dashboard", "dashboard"),
 	}
 
 	data.Stats = h.getDashboardStats(c)
@@ -145,36 +146,7 @@ func (h *WebUIHandler) getPrinterStatuses(c *gin.Context) []PrinterWithStatus {
 
 	statuses := make([]PrinterWithStatus, 0, len(printers))
 	for _, p := range printers {
-		ps := PrinterWithStatus{
-			ID:        p.ID,
-			Name:      p.Name,
-			IPAddress: p.IPAddress,
-			Port:      p.Port,
-			Status:    p.Status,
-			LastSeenAt: p.LastSeenAt,
-		}
-
-		ps.StatusClass = getStatusClass(p.Status)
-		ps.StatusIndicatorClass = getIndicatorClass(p.Status)
-		ps.CanPrint = p.Status == "online" || p.Status == "idle" || p.Status == "standby"
-
-		if p.LastSeenAt != nil {
-			ps.LastSeenAtFormatted = formatLastSeen(*p.LastSeenAt)
-		}
-
-		if h.printerManager != nil {
-			status, err := h.printerManager.CheckStatus(p.ID)
-			if err == nil {
-				if status.Warning != "" && status.Warning != "none" {
-					ps.Warning = status.Warning
-				}
-				if status.Error != "" && status.Error != "none" {
-					ps.Error = status.Error
-				}
-			}
-		}
-
-		statuses = append(statuses, ps)
+		statuses = append(statuses, h.printerStatus(p))
 	}
 
 	return statuses
@@ -246,25 +218,28 @@ func (h *WebUIHandler) GetPrinterStatusCard(c *gin.Context) {
 		return
 	}
 
-	ps := PrinterWithStatus{
-		ID:          printer.ID,
-		Name:        printer.Name,
-		IPAddress:   printer.IPAddress,
-		Port:        printer.Port,
-		Status:      printer.Status,
-		LastSeenAt:  printer.LastSeenAt,
-		StatusClass: getStatusClass(printer.Status),
-		StatusIndicatorClass: getIndicatorClass(printer.Status),
-		CanPrint:    printer.Status == "online" || printer.Status == "idle" || printer.Status == "standby",
-	}
+	c.HTML(http.StatusOK, "printer-card", h.printerStatus(printer))
+}
 
+// printerStatus builds the dashboard card data for one printer, asking the
+// printer itself for warnings and errors when a manager is attached.
+func (h *WebUIHandler) printerStatus(printer *db.Printer) PrinterWithStatus {
+	ps := PrinterWithStatus{
+		ID:                   printer.ID,
+		Name:                 printer.Name,
+		IPAddress:            printer.IPAddress,
+		Port:                 printer.Port,
+		Status:               printer.Status,
+		LastSeenAt:           printer.LastSeenAt,
+		StatusClass:          getStatusClass(printer.Status),
+		StatusIndicatorClass: getIndicatorClass(printer.Status),
+		CanPrint:             printer.Status == "online" || printer.Status == "idle" || printer.Status == "standby",
+	}
 	if printer.LastSeenAt != nil {
 		ps.LastSeenAtFormatted = formatLastSeen(*printer.LastSeenAt)
 	}
-
 	if h.printerManager != nil {
-		status, err := h.printerManager.CheckStatus(printer.ID)
-		if err == nil {
+		if status, err := h.printerManager.CheckStatus(printer.ID); err == nil {
 			if status.Warning != "" && status.Warning != "none" {
 				ps.Warning = status.Warning
 			}
@@ -273,8 +248,7 @@ func (h *WebUIHandler) GetPrinterStatusCard(c *gin.Context) {
 			}
 		}
 	}
-
-	c.HTML(http.StatusOK, "printer-card", ps)
+	return ps
 }
 
 func getStatusClass(status string) string {
@@ -348,9 +322,31 @@ func formatLastSeen(t time.Time) string {
 	return t.Format("Jan 2, 15:04")
 }
 
-func RegisterWebUIRoutes(router *gin.Engine, handler *WebUIHandler) {
-	router.GET("/", handler.Dashboard)
-	router.GET("/dashboard", handler.Dashboard)
-	router.GET("/api/dashboard/stats", handler.GetDashboardStats)
-	router.GET("/ui/printers/:id/status", handler.GetPrinterStatusCard)
+// RegisterPages mounts the browser pages and the HTMX fragments they refresh.
+// Pass a group that already enforces auth. Fragment routes sit under the same
+// group because the pages call them with the session cookie.
+func (h *WebUIHandler) RegisterPages(r gin.IRoutes) {
+	r.GET("/", h.Dashboard)
+	r.GET("/dashboard", h.Dashboard)
+	r.GET("/printers", h.PrintersPage)
+	r.GET("/queue", h.QueuePage)
+	r.GET("/history", h.HistoryPage)
+	r.GET("/templates", h.TemplatesPage)
+	r.GET("/settings", h.SettingsPage)
+	r.GET("/settings/audit", h.SettingsAudit)
+
+	r.GET("/api/dashboard/stats", h.GetDashboardStats)
+	r.GET("/ui/printers/:id/status", h.GetPrinterStatusCard)
+	r.GET("/api/printers/grid", h.PrintersGrid)
+	r.GET("/api/jobs/queue-content", h.QueueContent)
+	r.GET("/api/jobs/history-table", h.HistoryTable)
+
+	r.GET("/printers/add-modal", h.PrinterAddModal)
+	r.GET("/printers/:id/edit-modal", h.PrinterEditModal)
+	r.GET("/printers/:id/test-modal", h.PrinterTestModal)
+	r.GET("/jobs/new-modal", h.JobNewModal)
+	r.GET("/jobs/:id/detail-modal", h.JobDetailModal)
+	r.GET("/templates/create-modal", h.TemplateCreateModal)
+	r.GET("/templates/:id/edit-modal", h.TemplateEditModal)
+	r.GET("/templates/:id/preview-modal", h.TemplatePreviewModal)
 }

@@ -1,6 +1,6 @@
-{{ define "modal-content" }}
+{{ define "template-form" }}
 <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" 
-     x-data="templateEditor({{ .Template | json }}, {{ .TSPLPreview }})"
+     x-data="templateEditor({{ .Template | json }}, {{ .TSPLPreview | json }})"
      @keydown.escape.window="$dispatch('close-modal')"
      @click.self="$dispatch('close-modal')">
   <div class="bg-white rounded-lg shadow-xl w-full max-w-7xl max-h-[95vh] flex flex-col" @click.stop>
@@ -526,21 +526,35 @@ function templateEditor(initialTemplate, initialTSPL) {
       const url = this.isNew ? '/api/templates' : `/api/templates/${this.template.id}`;
       const method = this.isNew ? 'POST' : 'PUT';
       
+      const t = this.template;
+      const variables = {};
+      this.detectedVariables.forEach(v => {
+        variables[v.name] = { type: v.type || 'string', required: !!v.required, default: v.default_value || '' };
+      });
       fetch(url, {
         method: method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...this.template,
-          variables: this.detectedVariables
+          name: t.name,
+          description: t.description || '',
+          schema: {
+            name: t.name,
+            width_mm: t.label_width,
+            height_mm: t.label_height,
+            gap_mm: t.gap,
+            dpi: t.dpi,
+            elements: t.elements,
+            variables: variables
+          }
         })
       })
-      .then(response => response.json())
-      .then(data => {
-        if (data.success) {
+      .then(response => response.json().then(data => ({ ok: response.ok, data: data })))
+      .then(result => {
+        if (result.ok) {
           htmx.trigger('body', 'template-saved');
           this.$dispatch('close-modal');
         } else {
-          alert('Error saving template: ' + data.error);
+          alert('Error saving template: ' + (result.data.error || result.data.message));
         }
       })
       .catch(err => {

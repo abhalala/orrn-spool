@@ -1,4 +1,4 @@
-{{ define "content" }}
+{{ define "settings-content" }}
 <div class="space-y-6" x-data="{ activeTab: 'general' }">
   <h1 class="text-2xl font-bold text-gray-900">Settings</h1>
 
@@ -51,3 +51,5 @@
   </div>
 </div>
 {{ end }}
+
+{{ define "settings" }}{{ template "layout-head" . }}{{ template "settings-content" . }}{{ template "layout-foot" . }}{{ end }}

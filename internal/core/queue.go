@@ -380,8 +380,8 @@ func (q *Queue) EnqueueOnce(job *Job) (id int64, created bool, err error) {
 	}
 
 	result, err := q.db.Exec(`
-		INSERT INTO print_jobs (printer_id, template_id, variables_json, tspl_content, status, priority, copies, submitted_by, job_key)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO print_jobs (printer_id, template_id, variables_json, tspl_content, status, priority, copies, submitted_by, job_key, error_message)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '')
 	`, job.PrinterID, job.TemplateID, job.VariablesJSON, job.TSPLContent, job.Status, job.Priority, job.Copies, job.SubmittedBy, key)
 	if err != nil {
 		if job.JobKey != "" {
@@ -426,7 +426,7 @@ func (q *Queue) Dequeue() (*Job, error) {
 
 	var job Job
 	err = tx.QueryRow(`
-		SELECT id, printer_id, template_id, variables_json, tspl_content, status, priority, retry_count, error_message, copies, submitted_by, created_at, started_at, completed_at
+		SELECT id, COALESCE(printer_id, 0), COALESCE(template_id, 0), variables_json, tspl_content, status, priority, retry_count, COALESCE(error_message, ''), copies, submitted_by, created_at, started_at, completed_at
 		FROM print_jobs 
 		WHERE status = 'pending' 
 		ORDER BY priority DESC, created_at ASC 
@@ -465,7 +465,7 @@ func (q *Queue) GetJob(id int64) (*Job, error) {
 	var job Job
 	var startedAt, completedAt sql.NullTime
 	err := q.db.QueryRow(`
-		SELECT id, printer_id, template_id, variables_json, tspl_content, status, priority, retry_count, error_message, copies, submitted_by, created_at, started_at, completed_at
+		SELECT id, COALESCE(printer_id, 0), COALESCE(template_id, 0), variables_json, tspl_content, status, priority, retry_count, COALESCE(error_message, ''), copies, submitted_by, created_at, started_at, completed_at
 		FROM print_jobs WHERE id = ?
 	`, id).Scan(
 		&job.ID, &job.PrinterID, &job.TemplateID, &job.VariablesJSON, &job.TSPLContent,
@@ -495,14 +495,14 @@ func (q *Queue) ListJobs(status JobStatus, limit, offset int) ([]*Job, error) {
 
 	if status != "" {
 		rows, err = q.db.Query(`
-			SELECT id, printer_id, template_id, variables_json, tspl_content, status, priority, retry_count, error_message, copies, submitted_by, created_at, started_at, completed_at
+			SELECT id, COALESCE(printer_id, 0), COALESCE(template_id, 0), variables_json, tspl_content, status, priority, retry_count, COALESCE(error_message, ''), copies, submitted_by, created_at, started_at, completed_at
 			FROM print_jobs WHERE status = ?
 			ORDER BY priority DESC, created_at DESC
 			LIMIT ? OFFSET ?
 		`, status, limit, offset)
 	} else {
 		rows, err = q.db.Query(`
-			SELECT id, printer_id, template_id, variables_json, tspl_content, status, priority, retry_count, error_message, copies, submitted_by, created_at, started_at, completed_at
+			SELECT id, COALESCE(printer_id, 0), COALESCE(template_id, 0), variables_json, tspl_content, status, priority, retry_count, COALESCE(error_message, ''), copies, submitted_by, created_at, started_at, completed_at
 			FROM print_jobs
 			ORDER BY priority DESC, created_at DESC
 			LIMIT ? OFFSET ?
