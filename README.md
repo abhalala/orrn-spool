@@ -71,10 +71,12 @@ agni's Tailscale resolver did not work before guest enrollment.
   copy it into logs. No AI credential is configured.
 - `docker compose --project-directory /opt/orrn-spool up -d --wait` manages
   the service. CT and Docker start at boot; guest restart recovery was exercised.
-- Tailscale 1.104.2 is installed with `/dev/net/tun` device passthrough.
-  Enrollment requests hostname `orrn-spool-agni`, with DNS acceptance, route
-  acceptance, exit-node advertisement and Tailscale SSH disabled. Device
-  authorization is separate from installing the package.
+- Tailscale 1.104.2 is installed with `/dev/net/tun` device passthrough and
+  authorized in agni's `bhalala.org` tailnet as
+  `orrn-spool-agni.shrimp-prometheus.ts.net` (**`100.126.110.28`**).
+  DNS acceptance, route acceptance, exit-node advertisement and Tailscale SSH
+  remain disabled. CT→agni Tailscale ping and Mac→CT ping/TCP 22 were verified.
+  Device key expiry is currently `2027-04-24`; expiry policy was not changed.
 
 **Production enrollment is not implied by local health.** Fourcubes enrollment
 still requires the signed-in ORRN platform-admin session, its company-bound
