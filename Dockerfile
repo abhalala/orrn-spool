@@ -8,8 +8,9 @@ COPY go.mod ./
 RUN go mod download || true
 
 COPY . .
+ARG VERSION=dev
 
-RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-w -s" -o /spool ./cmd/spool
+RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-w -s -X main.Version=${VERSION}" -o /spool ./cmd/spool
 
 FROM alpine:3.19
 

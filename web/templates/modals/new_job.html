@@ -276,8 +276,9 @@ function newJobModal() {
       try {
         const response = await fetch(`/api/templates/${this.form.templateId}`);
         const data = await response.json();
-        this.variableSchema = data.variables || [];
-        this.templateInfo = data.template || data;
+        const schema = JSON.parse(data.schema_json);
+        this.variableSchema = Object.entries(schema.variables || {}).map(([name, definition]) => ({ ...definition, name }));
+        this.templateInfo = data;
         
         this.form.variables = {};
         this.variableSchema.forEach(v => {

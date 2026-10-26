@@ -53,6 +53,69 @@ Access the web UI at `http://localhost:8080`
 3. **Create a Template** - Navigate to Templates → New Template
 4. **Print a Test Job** - Use the test print feature to verify connectivity
 
+### Agni deployment
+
+The isolated deployment uses an unprivileged Ubuntu 24.04 LXC, **CT 130**
+(`orrn-spool`): 2 CPUs, 2048 MB RAM, 512 MB swap, and a 12 GB root disk on
+NVMe `local-lvm`. It uses DHCP on `vmbr1`, VLAN 200 (observed address
+`20.0.0.126`). Guest DNS is explicitly `1.1.1.1` / `8.8.8.8`; inheriting
+agni's Tailscale resolver did not work before guest enrollment.
+
+- Runtime files: `/opt/orrn-spool/compose.yaml`, `config/config.yaml`,
+  private `config/spool.env`, and persistent `data/`.
+- Source: `/opt/orrn-spool-src`, from local branch `deploy/agni-fourcubes`
+  based on `b554beb`. Published `main`/`latest` does not contain this relay
+  integration. Build this source, including the template and webhook fixes.
+- Docker publishes only `127.0.0.1:8080` inside the guest. The admin password
+  is generated privately in `config/local-admin-password`; do not commit or
+  copy it into logs. No AI credential is configured.
+- `docker compose --project-directory /opt/orrn-spool up -d --wait` manages
+  the service. CT and Docker start at boot; guest restart recovery was exercised.
+- Tailscale 1.104.2 is installed with `/dev/net/tun` device passthrough.
+  Enrollment requests hostname `orrn-spool-agni`, with DNS acceptance, route
+  acceptance, exit-node advertisement and Tailscale SSH disabled. Device
+  authorization is separate from installing the package.
+
+**Production enrollment is not implied by local health.** Fourcubes enrollment
+still requires the signed-in ORRN platform-admin session, its company-bound
+deployment secret and tunnel credentials, a separate `cloudflared` connector,
+valid HTTPS for the enrolled hostname, and printer/template/profile bindings.
+Check for an existing active company deployment before activating a new one.
+Only publish signed API paths and `/health`; do not expose the legacy
+unauthenticated `/print/:layout/:uid` route or first-time admin setup.
+
+The TSC TA220 at `20.0.0.182:9100` was reachable from CT 130. Read-only printer
+pages reported Ready, media **102.25 × 76.20 mm**, gap **2.00 mm**, gap sensor,
+and thermal-transfer mode. No physical print or calibration was performed.
+Confirm the installed roll and a single test label before production sign-off.
+
+Legacy CT 120, VM 105 (BarTender), VM 181 and router VM 200 remain unchanged.
+The legacy web app and BarTender host answered HTTP 200. VM 181's SATA disk
+still has permanent ZFS corruption and its previous backup failed: retaining
+that VM is **not** a verified backup. Do not put the new spool on `adata_array`.
+No legacy print-proxy cutover has been performed.
+
+#### Moving the verified node to a Raspberry Pi
+
+Use a 64-bit Raspberry Pi OS/Ubuntu installation and build this source for
+`linux/arm64`; the agni image is `linux/amd64` and cannot simply be copied.
+After label and live-ORRN stability sign-off:
+
+1. Drain the queue, stop the old spool and its connector, then securely back up
+   `/opt/orrn-spool/data`, `config`, and `compose.yaml`. Stopping first gives a
+   consistent SQLite copy, including WAL state; preserve the settings/encryption keys in that DB.
+2. Restore the data/config bind mounts on the Pi, adjust the Compose image to
+   the native ARM64 build, and run one connector using the enrolled hostname.
+   Keep AI credentials unset unless separately configured.
+3. Enroll the Pi as a **new** Tailscale device. Do not copy
+   `/var/lib/tailscale` from the LXC or run two machines with one tailnet identity.
+4. Verify signed API access, ORRN heartbeat, printer state, profile/template
+   mappings and one physical label. Keep the LXC stopped but recoverable.
+   Never run both print queues concurrently against the same printer.
+5. For rollback, stop Pi spool/connector before restarting the LXC pair.
+   Keep the legacy BarTender route unchanged until a separately approved cutover.
+
+
 ## Configuration
 
 ### Environment Variables
@@ -166,6 +229,12 @@ curl -H "Authorization: Bearer <token>" http://localhost:8080/api/printers
 | `POST` | `/api/templates/:id/validate` | Validate schema |
 | `POST` | `/api/templates/:id/print` | Quick print with template |
 
+Create and update requests use `schema_json` (a JSON-encoded schema string), with
+top-level `width_mm` and `height_mm` matching the schema. Responses include the
+same `schema_json` field. Updates may change metadata alone; invalid schema or
+inconsistent dimensions are rejected without changing the stored template.
+
+
 ### Webhooks API
 
 | Method | Endpoint | Description |
@@ -245,23 +314,10 @@ curl -X POST http://localhost:8080/api/templates \
   -H "Content-Type: application/json" \
   -d '{
     "name": "product_label",
-    "description": "Standard product label with barcode",
-    "schema": {
-      "width_mm": 100,
-      "height_mm": 50,
-      "gap_mm": 2,
-      "dpi": 203,
-      "elements": [
-        {"type": "text", "x": 10, "y": 5, "font": "3", "x_scale": 2, "y_scale": 2, "content": "{{product_name}}"},
-        {"type": "barcode", "x": 10, "y": 25, "symbology": "128", "height": 60, "content": "{{barcode}}"},
-        {"type": "text", "x": 10, "y": 90, "font": "2", "content": "{{price}}"}
-      ],
-      "variables": {
-        "product_name": {"type": "string", "required": true},
-        "barcode": {"type": "string", "required": true},
-        "price": {"type": "string", "required": false, "default": ""}
-      }
-    }
+    "description": "Product label",
+    "width_mm": 100,
+    "height_mm": 50,
+    "schema_json": "{\"width_mm\":100,\"height_mm\":50,\"gap_mm\":2,\"dpi\":203,\"elements\":[{\"type\":\"text\",\"x\":10,\"y\":5,\"font\":\"3\",\"content\":\"{{product_name}}\"}],\"variables\":{\"product_name\":{\"type\":\"string\",\"required\":true}}}"
   }'
 ```
 
@@ -279,7 +335,12 @@ curl -X POST http://localhost:8080/api/webhooks \
   }'
 ```
 
-Webhook payloads include HMAC-SHA256 signature in `X-Webhook-Signature` header.
+`X-Webhook-Signature` is the lowercase hexadecimal HMAC-SHA256 of the exact
+transmitted JSON envelope (`event`, `timestamp`, `data`), using the webhook's
+secret. The signature is not embedded in the JSON. Configuring
+`ORRN_SPOOL_SUBDOMAIN` adds `X-Spool-Subdomain`, required by ORRN's callback
+receiver. Configure its URL as the API origin plus `/webhooks/spool`, using the
+same deployment secret; browser-session credentials are not machine credentials.
 
 ### Use AI Label Designer
 

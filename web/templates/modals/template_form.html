@@ -111,7 +111,7 @@
                 </button>
               </div>
               <div class="text-xs text-gray-500 mt-1">
-                <span x-text="'(' + element.x + ', ' + element.y + ')'"></span>
+                <span x-text="'(' + (element.type === 'line' ? element.x1 : element.x) + ', ' + (element.type === 'line' ? element.y1 : element.y) + ')'"></span>
                 <template x-if="element.content">
                   <span class="ml-2 truncate" x-text="element.content.substring(0, 20)"></span>
                 </template>
@@ -126,16 +126,17 @@
       
       <div class="w-1/4 border-r p-4 overflow-y-auto">
         <h3 class="font-semibold mb-3 text-gray-700">Element Properties</h3>
-        <div x-show="selectedElementIndex !== null" id="element-editor">
+        <template x-if="selectedElementIndex !== null">
+        <div id="element-editor">
           <div class="space-y-4">
             <div class="grid grid-cols-2 gap-2">
               <div>
                 <label class="block text-sm font-medium text-gray-600">X Position</label>
-                <input type="number" x-model.number="selectedElement.x" @input="updatePreview" class="w-full border rounded p-2 text-sm">
+                <input type="number" x-model.number="selectedElement[selectedElement.type === 'line' ? 'x1' : 'x']" @input="updatePreview" class="w-full border rounded p-2 text-sm">
               </div>
               <div>
                 <label class="block text-sm font-medium text-gray-600">Y Position</label>
-                <input type="number" x-model.number="selectedElement.y" @input="updatePreview" class="w-full border rounded p-2 text-sm">
+                <input type="number" x-model.number="selectedElement[selectedElement.type === 'line' ? 'y1' : 'y']" @input="updatePreview" class="w-full border rounded p-2 text-sm">
               </div>
             </div>
             
@@ -150,7 +151,7 @@
             <template x-if="selectedElement?.type === 'text'">
               <div>
                 <label class="block text-sm font-medium text-gray-600">Font</label>
-                <select x-model.number="selectedElement.font" @change="updatePreview" class="w-full border rounded p-2 text-sm">
+                <select x-model="selectedElement.font" @change="updatePreview" class="w-full border rounded p-2 text-sm">
                   <option value="1">8x12 dots</option>
                   <option value="2">12x20 dots</option>
                   <option value="3">16x24 dots</option>
@@ -162,8 +163,8 @@
             
             <template x-if="selectedElement?.type === 'text'">
               <div>
-                <label class="block text-sm font-medium text-gray-600">Font Size (points)</label>
-                <input type="number" x-model.number="selectedElement.font_size" @input="updatePreview" class="w-full border rounded p-2 text-sm">
+                <label class="block text-sm font-medium text-gray-600">Horizontal Scale</label>
+                <input type="number" min="1" x-model.number="selectedElement.x_scale" @input="updatePreview" class="w-full border rounded p-2 text-sm">
               </div>
             </template>
             
@@ -171,7 +172,7 @@
               <div class="grid grid-cols-2 gap-2">
                 <div>
                   <label class="block text-sm font-medium text-gray-600">Width</label>
-                  <input type="number" x-model.number="selectedElement.width" @input="updatePreview" class="w-full border rounded p-2 text-sm">
+                  <input type="number" x-model.number="selectedElement[selectedElement.type === 'barcode' ? 'narrow' : 'width']" @input="updatePreview" class="w-full border rounded p-2 text-sm">
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-gray-600">Height</label>
@@ -183,15 +184,15 @@
             <template x-if="selectedElement?.type === 'barcode'">
               <div>
                 <label class="block text-sm font-medium text-gray-600">Barcode Type</label>
-                <select x-model="selectedElement.barcode_type" @change="updatePreview" class="w-full border rounded p-2 text-sm">
-                  <option value="CODE128">Code 128</option>
-                  <option value="CODE39">Code 39</option>
-                  <option value="CODE93">Code 93</option>
+                <select x-model="selectedElement.symbology" @change="updatePreview" class="w-full border rounded p-2 text-sm">
+                  <option value="128">Code 128</option>
+                  <option value="39">Code 39</option>
+                  <option value="93">Code 93</option>
                   <option value="EAN13">EAN-13</option>
                   <option value="EAN8">EAN-8</option>
                   <option value="UPCA">UPC-A</option>
                   <option value="UPCE">UPC-E</option>
-                  <option value="INTERLEAVED25">Interleaved 2 of 5</option>
+                  <option value="ITF">Interleaved 2 of 5</option>
                 </select>
               </div>
             </template>
@@ -199,19 +200,19 @@
             <template x-if="selectedElement?.type === 'qrcode'">
               <div>
                 <label class="block text-sm font-medium text-gray-600">Cell Size</label>
-                <input type="number" x-model.number="selectedElement.cell_size" @input="updatePreview" class="w-full border rounded p-2 text-sm" min="1" max="10">
+                <input type="number" x-model.number="selectedElement.cell_width" @input="updatePreview" class="w-full border rounded p-2 text-sm" min="1" max="10">
               </div>
             </template>
             
             <template x-if="['box', 'line'].includes(selectedElement?.type)">
               <div class="grid grid-cols-2 gap-2">
                 <div>
-                  <label class="block text-sm font-medium text-gray-600">Width</label>
-                  <input type="number" x-model.number="selectedElement.width" @input="updatePreview" class="w-full border rounded p-2 text-sm">
+                  <label class="block text-sm font-medium text-gray-600">End X</label>
+                  <input type="number" x-model.number="selectedElement[selectedElement.type === 'line' ? 'x2' : 'x_end']" @input="updatePreview" class="w-full border rounded p-2 text-sm">
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-gray-600">Height</label>
-                  <input type="number" x-model.number="selectedElement.height" @input="updatePreview" class="w-full border rounded p-2 text-sm">
+                  <label class="block text-sm font-medium text-gray-600">End Y</label>
+                  <input type="number" x-model.number="selectedElement[selectedElement.type === 'line' ? 'y2' : 'y_end']" @input="updatePreview" class="w-full border rounded p-2 text-sm">
                 </div>
               </div>
               <div class="mt-2">
@@ -222,8 +223,8 @@
             
             <template x-if="selectedElement?.type === 'circle'">
               <div>
-                <label class="block text-sm font-medium text-gray-600">Diameter</label>
-                <input type="number" x-model.number="selectedElement.diameter" @input="updatePreview" class="w-full border rounded p-2 text-sm">
+                <label class="block text-sm font-medium text-gray-600">Radius</label>
+                <input type="number" x-model.number="selectedElement.radius" @input="updatePreview" class="w-full border rounded p-2 text-sm">
               </div>
               <div class="mt-2">
                 <label class="block text-sm font-medium text-gray-600">Line Thickness</label>
@@ -249,6 +250,7 @@
             </template>
           </div>
         </div>
+        </template>
         <div x-show="selectedElementIndex === null" class="text-center py-8 text-gray-400 text-sm">
           Select an element to edit its properties
         </div>
@@ -291,6 +293,9 @@
     </div>
   </div>
 </div>
+{{ end }}
+
+{{ define "template-editor-script" }}
 
 <script>
 function templateEditor(initialTemplate, initialTSPL) {
@@ -309,7 +314,7 @@ function templateEditor(initialTemplate, initialTSPL) {
     showAddMenu: false,
     isNew: !initialTemplate?.id,
     draggedIndex: null,
-    detectedVariables: [],
+    detectedVariables: (initialTemplate?.variables || []).map(v => ({ ...v })),
     testValues: {},
     
     elementTypes: [
@@ -343,17 +348,19 @@ function templateEditor(initialTemplate, initialTSPL) {
       
       switch (type) {
         case 'text':
-          newElement.font = 3;
-          newElement.font_size = 0;
+          newElement.font = '3';
+          newElement.x_scale = 1;
+          newElement.y_scale = 1;
           break;
         case 'barcode':
-          newElement.width = 2;
+          newElement.narrow = 2;
+          newElement.wide = 2;
           newElement.height = 50;
-          newElement.barcode_type = 'CODE128';
+          newElement.symbology = '128';
           break;
         case 'qrcode':
-          newElement.cell_size = 4;
-          newElement.width = 50;
+          newElement.cell_width = 4;
+          newElement.level = 'H';
           break;
         case 'pdf417':
         case 'datamatrix':
@@ -361,13 +368,21 @@ function templateEditor(initialTemplate, initialTSPL) {
           newElement.height = 50;
           break;
         case 'box':
+          newElement.x_end = 110;
+          newElement.y_end = 60;
+          newElement.thickness = 2;
+          break;
         case 'line':
-          newElement.width = 100;
-          newElement.height = 50;
+          delete newElement.x;
+          delete newElement.y;
+          newElement.x1 = 10;
+          newElement.y1 = 10;
+          newElement.x2 = 110;
+          newElement.y2 = 60;
           newElement.thickness = 2;
           break;
         case 'circle':
-          newElement.diameter = 30;
+          newElement.radius = 15;
           newElement.thickness = 2;
           break;
         case 'image':
@@ -450,18 +465,15 @@ function templateEditor(initialTemplate, initialTSPL) {
     },
     
     generateTSPL() {
-      const dpi = this.template.dpi;
-      const mmToDots = mm => Math.round(mm * dpi / 25.4);
-      
-      let tspl = `SIZE ${mmToDots(this.template.label_width)} mm, ${mmToDots(this.template.label_height)} mm\n`;
-      tspl += `GAP ${mmToDots(this.template.gap)} mm, 0 mm\n`;
+      let tspl = `SIZE ${this.template.label_width} mm, ${this.template.label_height} mm\n`;
+      tspl += `GAP ${this.template.gap} mm, 0 mm\n`;
       tspl += `DENSITY 10\n`;
       tspl += `DIRECTION 1\n`;
       tspl += `CLS\n`;
       
       this.template.elements.forEach(element => {
-        const x = mmToDots(element.x);
-        const y = mmToDots(element.y);
+        const x = element.type === 'line' ? element.x1 : element.x;
+        const y = element.type === 'line' ? element.y1 : element.y;
         
         let content = element.content || '';
         Object.keys(this.testValues).forEach(key => {
@@ -472,17 +484,14 @@ function templateEditor(initialTemplate, initialTSPL) {
         
         switch (element.type) {
           case 'text':
-            const fontSize = element.font_size || element.font * 8;
-            tspl += `TEXT ${x},${y},"${element.font}",0,1,1,"${content}"\n`;
+            tspl += `TEXT ${x},${y},"${element.font}",${element.rotation || 0},${element.x_scale || 1},${element.y_scale || 1},"${content}"\n`;
             break;
           case 'barcode':
-            const bcWidth = mmToDots(element.width);
-            const bcHeight = mmToDots(element.height);
-            tspl += `BARCODE ${x},${y},"${element.barcode_type}",${bcHeight},1,0,2,2,"${content}"\n`;
+            tspl += `BARCODE ${x},${y},"${element.symbology || '128'}",${element.height || 50},1,${element.rotation || 0},${element.narrow || 2},${element.wide || 2},"${content}"\n`;
             break;
           case 'qrcode':
-            const qrSize = element.cell_size || 4;
-            tspl += `QRCODE ${x},${y},H,${qrSize},A,0,"${content}"\n`;
+            const qrSize = element.cell_width || 4;
+            tspl += `QRCODE ${x},${y},${element.level || 'H'},${qrSize},A,${element.rotation || 0},"${content}"\n`;
             break;
           case 'pdf417':
             tspl += `PDF417 ${x},${y},${element.width},${element.height},"${content}"\n`;
@@ -491,13 +500,13 @@ function templateEditor(initialTemplate, initialTSPL) {
             tspl += `DMATRIX ${x},${y},${element.width},"${content}"\n`;
             break;
           case 'box':
-            tspl += `BOX ${x},${y},${x + mmToDots(element.width)},${y + mmToDots(element.height)},${element.thickness}\n`;
+            tspl += `BOX ${x},${y},${element.x_end},${element.y_end},${element.thickness}\n`;
             break;
           case 'line':
-            tspl += `LINE ${x},${y},${x + mmToDots(element.width)},${y + mmToDots(element.height)},${element.thickness}\n`;
+            tspl += `BAR ${x},${y},${element.x2},${element.y2},${element.thickness}\n`;
             break;
           case 'circle':
-            tspl += `CIRCLE ${x},${y},${element.diameter},${element.thickness}\n`;
+            tspl += `CIRCLE ${x},${y},${element.radius},${element.thickness}\n`;
             break;
           case 'image':
             if (element.image_path) {
@@ -537,7 +546,9 @@ function templateEditor(initialTemplate, initialTSPL) {
         body: JSON.stringify({
           name: t.name,
           description: t.description || '',
-          schema: {
+          width_mm: t.label_width,
+          height_mm: t.label_height,
+          schema_json: JSON.stringify({
             name: t.name,
             width_mm: t.label_width,
             height_mm: t.label_height,
@@ -545,7 +556,7 @@ function templateEditor(initialTemplate, initialTSPL) {
             dpi: t.dpi,
             elements: t.elements,
             variables: variables
-          }
+          })
         })
       })
       .then(response => response.json().then(data => ({ ok: response.ok, data: data })))

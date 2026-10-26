@@ -32,7 +32,6 @@ type WebhookPayload struct {
 	Event     string      `json:"event"`
 	Timestamp time.Time   `json:"timestamp"`
 	Data      interface{} `json:"data"`
-	Signature string      `json:"signature,omitempty"`
 }
 
 type JobEventData struct {
@@ -72,6 +71,7 @@ type WebhookConfig struct {
 	Timeout     time.Duration
 	WorkerCount int
 	QueueSize   int
+	Subdomain   string
 }
 
 type webhookTask struct {
@@ -86,6 +86,7 @@ type WebhookSender struct {
 	httpClient *http.Client
 	retryCount int
 	retryDelay time.Duration
+	subdomain  string
 	queue      chan *webhookTask
 	stopCh     chan struct{}
 	wg         sync.WaitGroup
@@ -115,6 +116,7 @@ func NewWebhookSender(database *sql.DB, config WebhookConfig) *WebhookSender {
 		},
 		retryCount: config.RetryCount,
 		retryDelay: config.RetryDelay,
+		subdomain:  config.Subdomain,
 		queue:      make(chan *webhookTask, config.QueueSize),
 		stopCh:     make(chan struct{}),
 	}
@@ -234,7 +236,7 @@ func (s *WebhookSender) enqueue(event WebhookEvent, data interface{}) {
 func (s *WebhookSender) getActiveWebhooksForEvent(event WebhookEvent) ([]*db.Webhook, error) {
 	query := `SELECT id, name, url, secret, events_json, enabled, created_at FROM webhooks WHERE enabled = 1 AND events_json LIKE ?`
 	eventPattern := fmt.Sprintf("%%\"%s\"%%", event)
-	
+
 	rows, err := s.db.Query(query, eventPattern)
 	if err != nil {
 		return nil, fmt.Errorf("query webhooks: %w", err)
@@ -269,14 +271,14 @@ func (s *WebhookSender) getWebhookByID(id int64) (*db.Webhook, error) {
 
 func (s *WebhookSender) worker(id int) {
 	defer s.wg.Done()
-	
+
 	for {
 		select {
 		case <-s.stopCh:
 			return
 		case task := <-s.queue:
 			if err := s.sendWithRetry(task); err != nil {
-				log.Printf("[webhook worker %d] failed to send webhook %d for event %s after %d attempts: %v", 
+				log.Printf("[webhook worker %d] failed to send webhook %d for event %s after %d attempts: %v",
 					id, task.webhookID, task.event, task.attempt, err)
 			}
 		}
@@ -289,17 +291,22 @@ func (s *WebhookSender) sendWithRetry(task *webhookTask) error {
 		return fmt.Errorf("get webhook: %w", err)
 	}
 
+	body, err := json.Marshal(task.payload)
+	if err != nil {
+		return fmt.Errorf("marshal payload: %w", err)
+	}
+
 	var lastErr error
 	for task.attempt < s.retryCount {
 		task.attempt++
-		
-		err := s.sendRequest(webhook, task.payload)
+
+		err := s.sendBody(webhook, task.payload.Event, body)
 		if err == nil {
 			return nil
 		}
-		
+
 		lastErr = err
-		
+
 		if isClientError(err) {
 			log.Printf("[webhook] client error for webhook %d, not retrying: %v", webhook.ID, err)
 			return err
@@ -307,9 +314,9 @@ func (s *WebhookSender) sendWithRetry(task *webhookTask) error {
 
 		if task.attempt < s.retryCount {
 			backoff := s.retryDelay * time.Duration(1<<(task.attempt-1))
-			log.Printf("[webhook] retry %d/%d for webhook %d in %v: %v", 
+			log.Printf("[webhook] retry %d/%d for webhook %d in %v: %v",
 				task.attempt, s.retryCount, webhook.ID, backoff, err)
-			
+
 			select {
 			case <-s.stopCh:
 				return fmt.Errorf("shutdown requested")
@@ -317,33 +324,32 @@ func (s *WebhookSender) sendWithRetry(task *webhookTask) error {
 			}
 		}
 	}
-	
+
 	return fmt.Errorf("max retries exceeded: %w", lastErr)
 }
 
 func (s *WebhookSender) sendRequest(webhook *db.Webhook, payload *WebhookPayload) error {
-	payloadBytes, err := json.Marshal(payload.Data)
-	if err != nil {
-		return fmt.Errorf("marshal data: %w", err)
-	}
-
-	if webhook.Secret != "" {
-		payload.Signature = s.signPayload(payloadBytes, webhook.Secret)
-	}
-
-	fullPayload, err := json.Marshal(payload)
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("marshal payload: %w", err)
 	}
+	return s.sendBody(webhook, payload.Event, body)
+}
 
-	req, err := http.NewRequest("POST", webhook.URL, bytes.NewReader(fullPayload))
+func (s *WebhookSender) sendBody(webhook *db.Webhook, event string, body []byte) error {
+	req, err := http.NewRequest("POST", webhook.URL, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Webhook-Signature", payload.Signature)
-	req.Header.Set("X-Webhook-Event", payload.Event)
+	if webhook.Secret != "" {
+		req.Header.Set("X-Webhook-Signature", s.signPayload(body, webhook.Secret))
+	}
+	if s.subdomain != "" {
+		req.Header.Set("X-Spool-Subdomain", s.subdomain)
+	}
+	req.Header.Set("X-Webhook-Event", event)
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
@@ -368,7 +374,7 @@ func isClientError(err error) bool {
 	if err == nil {
 		return false
 	}
-	
+
 	errStr := err.Error()
 	if strings.Contains(errStr, "http error: 4") {
 		return true

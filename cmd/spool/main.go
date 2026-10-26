@@ -1,233 +1,233 @@
 package main
 
 import (
-    "context"
-    "flag"
-    "fmt"
-    "log"
-    "net/http"
-    "os"
-    "os/signal"
-    "syscall"
-    "time"
+	"context"
+	"flag"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
-    "github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin"
 
-    "github.com/orrn/spool/internal/ai"
-    "github.com/orrn/spool/internal/api/handlers"
-    apimw "github.com/orrn/spool/internal/api/middleware"
-    "github.com/orrn/spool/internal/archive"
-    "github.com/orrn/spool/internal/config"
-    "github.com/orrn/spool/internal/core"
-    "github.com/orrn/spool/internal/db"
-    "github.com/orrn/spool/internal/heartbeat"
-    "github.com/orrn/spool/internal/scale"
-    "github.com/orrn/spool/internal/webhook"
+	"github.com/orrn/spool/internal/ai"
+	"github.com/orrn/spool/internal/api/handlers"
+	apimw "github.com/orrn/spool/internal/api/middleware"
+	"github.com/orrn/spool/internal/archive"
+	"github.com/orrn/spool/internal/config"
+	"github.com/orrn/spool/internal/core"
+	"github.com/orrn/spool/internal/db"
+	"github.com/orrn/spool/internal/heartbeat"
+	"github.com/orrn/spool/internal/scale"
+	"github.com/orrn/spool/internal/webhook"
 )
 
 // Version is set at build time with -ldflags "-X main.Version=...".
 var Version = "dev"
 
 func main() {
-    configPath := flag.String("config", "config.yaml", "Path to spool config")
-    scaleSim := flag.Bool("scale-sim", false, "Serve simulated scale frames instead of opening scale.device")
-    flag.Parse()
+	configPath := flag.String("config", "config.yaml", "Path to spool config")
+	scaleSim := flag.Bool("scale-sim", false, "Serve simulated scale frames instead of opening scale.device")
+	flag.Parse()
 
-    cfg, err := config.Load(*configPath)
-    if err != nil {
-        log.Fatalf("load config: %v", err)
-    }
-    if *scaleSim {
-        cfg.Scale.Simulate = true
-    }
-    if err := cfg.Validate(); err != nil {
-        log.Fatalf("validate config: %v", err)
-    }
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		log.Fatalf("load config: %v", err)
+	}
+	if *scaleSim {
+		cfg.Scale.Simulate = true
+	}
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("validate config: %v", err)
+	}
 
-    runCtx, stopRun := context.WithCancel(context.Background())
-    defer stopRun()
+	runCtx, stopRun := context.WithCancel(context.Background())
+	defer stopRun()
 
-    var scaleService *scale.Service
-    if cfg.Scale.Configured() {
-        scaleService, err = scale.NewService(cfg.Scale)
-        if err != nil {
-            log.Fatalf("init scale: %v", err)
-        }
-        go scaleService.Run(runCtx)
-        if cfg.Scale.Simulate {
-            log.Printf("scale: simulator on")
-        } else {
-            log.Printf("scale: reading %s (receive only)", cfg.Scale.Device)
-        }
-    }
+	var scaleService *scale.Service
+	if cfg.Scale.Configured() {
+		scaleService, err = scale.NewService(cfg.Scale)
+		if err != nil {
+			log.Fatalf("init scale: %v", err)
+		}
+		go scaleService.Run(runCtx)
+		if cfg.Scale.Simulate {
+			log.Printf("scale: simulator on")
+		} else {
+			log.Printf("scale: reading %s (receive only)", cfg.Scale.Device)
+		}
+	}
 
-    if err := db.Init(db.Config{Path: cfg.Database.Path}); err != nil {
-        log.Fatalf("init db: %v", err)
-    }
-    database := db.GetDB()
-    defer db.Close()
+	if err := db.Init(db.Config{Path: cfg.Database.Path}); err != nil {
+		log.Fatalf("init db: %v", err)
+	}
+	database := db.GetDB()
+	defer db.Close()
 
-    authMiddleware, err := apimw.NewAuthMiddleware(database)
-    if err != nil {
-        log.Fatalf("init auth middleware: %v", err)
-    }
-    if verifier := apimw.NewORRNVerifier(cfg.ORRN.SharedSecret); verifier != nil {
-        authMiddleware.SetORRNVerifier(verifier)
-        log.Printf("auth: ORRN machine tokens accepted")
-    }
+	authMiddleware, err := apimw.NewAuthMiddleware(database)
+	if err != nil {
+		log.Fatalf("init auth middleware: %v", err)
+	}
+	if verifier := apimw.NewORRNVerifier(cfg.ORRN.SharedSecret); verifier != nil {
+		authMiddleware.SetORRNVerifier(verifier)
+		log.Printf("auth: ORRN machine tokens accepted")
+	}
 
-    hb := heartbeat.Config{
-        ServerURL:    cfg.ORRN.ServerURL,
-        InstanceID:   cfg.ORRN.InstanceID,
-        Subdomain:    cfg.ORRN.Subdomain,
-        SharedSecret: cfg.ORRN.SharedSecret,
-        Version:      Version,
-        Interval:     cfg.ORRN.HeartbeatInterval,
-        Scale: func() heartbeat.ScalePresence {
-            st := scaleService.Status()
-            return heartbeat.ScalePresence{
-                Configured:  st.Configured,
-                Simulated:   st.Simulated,
-                Connected:   st.Connected,
-                LastFrameAt: st.LastFrameAt,
-            }
-        },
-    }
-    if hb.Enabled() {
-        go heartbeat.New(hb).Run(runCtx)
-    }
+	hb := heartbeat.Config{
+		ServerURL:    cfg.ORRN.ServerURL,
+		InstanceID:   cfg.ORRN.InstanceID,
+		Subdomain:    cfg.ORRN.Subdomain,
+		SharedSecret: cfg.ORRN.SharedSecret,
+		Version:      Version,
+		Interval:     cfg.ORRN.HeartbeatInterval,
+		Scale: func() heartbeat.ScalePresence {
+			st := scaleService.Status()
+			return heartbeat.ScalePresence{
+				Configured:  st.Configured,
+				Simulated:   st.Simulated,
+				Connected:   st.Connected,
+				LastFrameAt: st.LastFrameAt,
+			}
+		},
+	}
+	if hb.Enabled() {
+		go heartbeat.New(hb).Run(runCtx)
+	}
 
-    encryptionKey, err := apimw.GetEncryptionKey(database)
-    if err != nil {
-        log.Fatalf("load encryption key: %v", err)
-    }
+	encryptionKey, err := apimw.GetEncryptionKey(database)
+	if err != nil {
+		log.Fatalf("load encryption key: %v", err)
+	}
 
-    webhookSender := webhook.NewWebhookSender(database, webhook.WebhookConfig{})
-    webhookSender.Start()
-    defer webhookSender.Stop()
+	webhookSender := webhook.NewWebhookSender(database, webhook.WebhookConfig{Subdomain: cfg.ORRN.Subdomain})
+	webhookSender.Start()
+	defer webhookSender.Stop()
 
-    printerManager := core.NewPrinterManager(database, &cfg.Printers, webhookSender)
-    printerManager.Start()
-    defer printerManager.Stop()
+	printerManager := core.NewPrinterManager(database, &cfg.Printers, webhookSender)
+	printerManager.Start()
+	defer printerManager.Stop()
 
-    tsplGenerator := core.NewTSPL2Generator()
-    queue := core.NewQueue(database, printerManager, tsplGenerator, webhookSender, &cfg.Queue)
-    if err := queue.Start(); err != nil {
-        log.Fatalf("start queue: %v", err)
-    }
-    defer queue.Stop()
+	tsplGenerator := core.NewTSPL2Generator()
+	queue := core.NewQueue(database, printerManager, tsplGenerator, webhookSender, &cfg.Queue)
+	if err := queue.Start(); err != nil {
+		log.Fatalf("start queue: %v", err)
+	}
+	defer queue.Stop()
 
-    archiver, err := archive.NewArchiver(database, archive.ArchiveConfig{
-        ArchivePath: cfg.Database.ArchivePath,
-        ArchiveDays: cfg.Database.ArchiveDays,
-    })
-    if err != nil {
-        log.Fatalf("init archiver: %v", err)
-    }
-    if passphrase := os.Getenv("SPOOL_ARCHIVE_PASSPHRASE"); passphrase != "" {
-        if err := archiver.SetPassphrase(passphrase); err != nil {
-            log.Fatalf("set archive passphrase: %v", err)
-        }
-    }
-    archiver.Start()
-    defer archiver.Stop()
+	archiver, err := archive.NewArchiver(database, archive.ArchiveConfig{
+		ArchivePath: cfg.Database.ArchivePath,
+		ArchiveDays: cfg.Database.ArchiveDays,
+	})
+	if err != nil {
+		log.Fatalf("init archiver: %v", err)
+	}
+	if passphrase := os.Getenv("SPOOL_ARCHIVE_PASSPHRASE"); passphrase != "" {
+		if err := archiver.SetPassphrase(passphrase); err != nil {
+			log.Fatalf("set archive passphrase: %v", err)
+		}
+	}
+	archiver.Start()
+	defer archiver.Stop()
 
-    geminiClient := ai.NewGeminiClient()
-    if apiKey := os.Getenv("GEMINI_API_KEY"); apiKey != "" {
-        geminiClient.SetAPIKey(apiKey)
-    }
+	geminiClient := ai.NewGeminiClient()
+	if apiKey := os.Getenv("GEMINI_API_KEY"); apiKey != "" {
+		geminiClient.SetAPIKey(apiKey)
+	}
 
-    printerHandler := handlers.NewPrinterHandler(database, printerManager)
-    jobHandler := handlers.NewJobHandler(database, queue, tsplGenerator)
-    templateHandler := handlers.NewTemplateHandler(database, tsplGenerator, queue)
-    webhookHandler := handlers.NewWebhookHandler(database, webhookSender)
-    aiHandler := handlers.NewAIHandler(geminiClient, database, encryptionKey)
-    archiveHandler := handlers.NewArchiveHandler(archiver, database)
-    settingsHandler := handlers.NewSettingsHandler(database, cfg)
-    webUIHandler := handlers.NewWebUIHandler(database, queue, printerManager).WithDeps(handlers.WebUIDeps{
-        Config:   cfg,
-        Archiver: archiver,
-        AI:       geminiClient,
-    })
+	printerHandler := handlers.NewPrinterHandler(database, printerManager)
+	jobHandler := handlers.NewJobHandler(database, queue, tsplGenerator)
+	templateHandler := handlers.NewTemplateHandler(database, tsplGenerator, queue)
+	webhookHandler := handlers.NewWebhookHandler(database, webhookSender)
+	aiHandler := handlers.NewAIHandler(geminiClient, database, encryptionKey)
+	archiveHandler := handlers.NewArchiveHandler(archiver, database)
+	settingsHandler := handlers.NewSettingsHandler(database, cfg)
+	webUIHandler := handlers.NewWebUIHandler(database, queue, printerManager).WithDeps(handlers.WebUIDeps{
+		Config:   cfg,
+		Archiver: archiver,
+		AI:       geminiClient,
+	})
 
-    router := gin.Default()
-    if err := router.SetTrustedProxies(nil); err != nil {
-        log.Fatalf("set trusted proxies: %v", err)
-    }
-    router.SetFuncMap(handlers.TemplateFuncs())
-    router.LoadHTMLGlob("web/templates/**/*")
-    router.Static("/static", "web/static")
+	router := gin.Default()
+	if err := router.SetTrustedProxies(nil); err != nil {
+		log.Fatalf("set trusted proxies: %v", err)
+	}
+	router.SetFuncMap(handlers.TemplateFuncs())
+	router.LoadHTMLGlob("web/templates/**/*")
+	router.Static("/static", "web/static")
 
-    router.GET("/health", func(c *gin.Context) {
-        c.JSON(http.StatusOK, gin.H{"status": "ok"})
-    })
-    router.GET("/login", authMiddleware.LoginPage)
-    router.POST("/login", authMiddleware.LoginForm)
-    router.POST("/logout", authMiddleware.LogoutRedirect)
+	router.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "version": Version})
+	})
+	router.GET("/login", authMiddleware.LoginPage)
+	router.POST("/login", authMiddleware.LoginForm)
+	router.POST("/logout", authMiddleware.LogoutRedirect)
 
-    authRoutes := router.Group("/api/auth")
-    {
-        authRoutes.POST("/login", authMiddleware.LoginHandler)
-        authRoutes.POST("/logout", authMiddleware.LogoutHandler)
-        authRoutes.GET("/status", authMiddleware.StatusHandler)
-        authRoutes.POST("/setup", authMiddleware.SetupHandler)
-    }
+	authRoutes := router.Group("/api/auth")
+	{
+		authRoutes.POST("/login", authMiddleware.LoginHandler)
+		authRoutes.POST("/logout", authMiddleware.LogoutHandler)
+		authRoutes.GET("/status", authMiddleware.StatusHandler)
+		authRoutes.POST("/setup", authMiddleware.SetupHandler)
+	}
 
-    protectedPages := router.Group("/")
-    protectedPages.Use(authMiddleware.RequirePageAuth())
-    webUIHandler.RegisterPages(protectedPages)
+	protectedPages := router.Group("/")
+	protectedPages.Use(authMiddleware.RequirePageAuth())
+	webUIHandler.RegisterPages(protectedPages)
 
-    api := router.Group("/api")
-    api.Use(authMiddleware.RequireAuth())
-    api.Use(webUIHandler.HTMXFragments())
-    {
-        handlers.RegisterTemplateRoutes(api, templateHandler)
-        handlers.RegisterAIRoutes(api, aiHandler)
-        handlers.RegisterWebhookRoutes(api, webhookHandler)
-        handlers.RegisterSettingsRoutes(api, settingsHandler)
-        archiveHandler.RegisterRoutes(api)
-        jobHandler.RegisterRoutes(api)
-        api.GET("/printers", printerHandler.ListPrinters)
-        api.POST("/printers", printerHandler.CreatePrinter)
-        api.GET("/printers/:id", printerHandler.GetPrinter)
-        api.PUT("/printers/:id", printerHandler.UpdatePrinter)
-        api.DELETE("/printers/:id", printerHandler.DeletePrinter)
-        api.GET("/printers/:id/status", printerHandler.GetPrinterStatus)
-        api.POST("/printers/:id/test", printerHandler.TestPrinter)
-        api.POST("/printers/:id/pause", printerHandler.PausePrinter)
-        api.POST("/printers/:id/resume", printerHandler.ResumePrinter)
-        api.GET("/printers/:id/counters", printerHandler.GetPrinterCounters)
-    }
+	api := router.Group("/api")
+	api.Use(authMiddleware.RequireAuth())
+	api.Use(webUIHandler.HTMXFragments())
+	{
+		handlers.RegisterTemplateRoutes(api, templateHandler)
+		handlers.RegisterAIRoutes(api, aiHandler)
+		handlers.RegisterWebhookRoutes(api, webhookHandler)
+		handlers.RegisterSettingsRoutes(api, settingsHandler)
+		archiveHandler.RegisterRoutes(api)
+		jobHandler.RegisterRoutes(api)
+		api.GET("/printers", printerHandler.ListPrinters)
+		api.POST("/printers", printerHandler.CreatePrinter)
+		api.GET("/printers/:id", printerHandler.GetPrinter)
+		api.PUT("/printers/:id", printerHandler.UpdatePrinter)
+		api.DELETE("/printers/:id", printerHandler.DeletePrinter)
+		api.GET("/printers/:id/status", printerHandler.GetPrinterStatus)
+		api.POST("/printers/:id/test", printerHandler.TestPrinter)
+		api.POST("/printers/:id/pause", printerHandler.PausePrinter)
+		api.POST("/printers/:id/resume", printerHandler.ResumePrinter)
+		api.GET("/printers/:id/counters", printerHandler.GetPrinterCounters)
+	}
 
-    scaleRoutes := router.Group("/")
-    scaleRoutes.Use(authMiddleware.RequireAuth())
-    handlers.NewScaleHandler(scaleService).RegisterRoutes(scaleRoutes)
+	scaleRoutes := router.Group("/")
+	scaleRoutes.Use(authMiddleware.RequireAuth())
+	handlers.NewScaleHandler(scaleService).RegisterRoutes(scaleRoutes)
 
-    jobHandler.RegisterLegacyRoutes(router)
+	jobHandler.RegisterLegacyRoutes(router)
 
-    server := &http.Server{
-        Addr:              fmt.Sprintf(":%d", cfg.Server.Port),
-        Handler:           router,
-        ReadHeaderTimeout: 10 * time.Second,
-        ReadTimeout:       cfg.Server.ReadTimeout,
-        WriteTimeout:      cfg.Server.WriteTimeout,
-        IdleTimeout:       60 * time.Second,
-    }
+	server := &http.Server{
+		Addr:              fmt.Sprintf(":%d", cfg.Server.Port),
+		Handler:           router,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       cfg.Server.ReadTimeout,
+		WriteTimeout:      cfg.Server.WriteTimeout,
+		IdleTimeout:       60 * time.Second,
+	}
 
-    go func() {
-        log.Printf("orrn-spool listening on :%d", cfg.Server.Port)
-        if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-            log.Fatalf("listen: %v", err)
-        }
-    }()
+	go func() {
+		log.Printf("orrn-spool listening on :%d", cfg.Server.Port)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("listen: %v", err)
+		}
+	}()
 
-    sigCh := make(chan os.Signal, 1)
-    signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-    <-sigCh
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	<-sigCh
 
-    ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-    defer cancel()
-    if err := server.Shutdown(ctx); err != nil {
-        log.Printf("shutdown error: %v", err)
-    }
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		log.Printf("shutdown error: %v", err)
+	}
 }

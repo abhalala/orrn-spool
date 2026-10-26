@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -15,18 +16,20 @@ import (
 )
 
 type CreateTemplateRequest struct {
-	Name        string          `json:"name" binding:"required"`
-	Description string          `json:"description"`
-	Schema      LabelSchemaJSON `json:"schema" binding:"required"`
+	Name        string  `json:"name" binding:"required"`
+	Description string  `json:"description"`
+	SchemaJSON  string  `json:"schema_json" binding:"required"`
+	WidthMM     float64 `json:"width_mm" binding:"required,gt=0"`
+	HeightMM    float64 `json:"height_mm" binding:"required,gt=0"`
 }
 
 type LabelSchemaJSON struct {
-	Name      string                   `json:"name"`
-	WidthMM   float64                  `json:"width_mm" binding:"required,gt=0"`
-	HeightMM  float64                  `json:"height_mm" binding:"required,gt=0"`
-	GapMM     float64                  `json:"gap_mm"`
-	DPI       int                      `json:"dpi"`
-	Elements  []map[string]interface{} `json:"elements" binding:"required"`
+	Name      string                     `json:"name"`
+	WidthMM   float64                    `json:"width_mm" binding:"required,gt=0"`
+	HeightMM  float64                    `json:"height_mm" binding:"required,gt=0"`
+	GapMM     float64                    `json:"gap_mm"`
+	DPI       int                        `json:"dpi"`
+	Elements  []map[string]interface{}   `json:"elements" binding:"required"`
 	Variables map[string]VariableDefJSON `json:"variables"`
 }
 
@@ -37,26 +40,18 @@ type VariableDefJSON struct {
 }
 
 type UpdateTemplateRequest struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	Schema      LabelSchemaJSON `json:"schema"`
+	Name        string   `json:"name"`
+	Description *string  `json:"description"`
+	SchemaJSON  *string  `json:"schema_json"`
+	WidthMM     *float64 `json:"width_mm" binding:"omitempty,gt=0"`
+	HeightMM    *float64 `json:"height_mm" binding:"omitempty,gt=0"`
 }
 
 type TemplateResponse struct {
-	ID          int64            `json:"id"`
-	Name        string           `json:"name"`
-	Description string           `json:"description"`
-	Schema      LabelSchemaJSON  `json:"schema"`
-	WidthMM     float64          `json:"width_mm"`
-	HeightMM    float64          `json:"height_mm"`
-	CreatedAt   time.Time        `json:"created_at"`
-	UpdatedAt   time.Time        `json:"updated_at"`
-}
-
-type TemplateListResponse struct {
 	ID          int64     `json:"id"`
 	Name        string    `json:"name"`
 	Description string    `json:"description"`
+	SchemaJSON  string    `json:"schema_json"`
 	WidthMM     float64   `json:"width_mm"`
 	HeightMM    float64   `json:"height_mm"`
 	CreatedAt   time.Time `json:"created_at"`
@@ -111,21 +106,9 @@ func (h *TemplateHandler) ListTemplates(c *gin.Context) {
 		return
 	}
 
-	var response []TemplateListResponse
+	response := make([]TemplateResponse, 0, len(templates))
 	for _, t := range templates {
-		response = append(response, TemplateListResponse{
-			ID:          t.ID,
-			Name:        t.Name,
-			Description: t.Description,
-			WidthMM:     t.WidthMM,
-			HeightMM:    t.HeightMM,
-			CreatedAt:   t.CreatedAt,
-			UpdatedAt:   t.UpdatedAt,
-		})
-	}
-
-	if response == nil {
-		response = []TemplateListResponse{}
+		response = append(response, h.templateToResponse(t))
 	}
 
 	c.JSON(http.StatusOK, response)
@@ -134,6 +117,11 @@ func (h *TemplateHandler) ListTemplates(c *gin.Context) {
 func (h *TemplateHandler) CreateTemplate(c *gin.Context) {
 	var req CreateTemplateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := h.validateTemplateSchema(req.SchemaJSON, req.WidthMM, req.HeightMM); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -148,18 +136,12 @@ func (h *TemplateHandler) CreateTemplate(c *gin.Context) {
 		return
 	}
 
-	schemaBytes, err := json.Marshal(req.Schema)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to encode schema"})
-		return
-	}
-
 	template := &db.LabelTemplate{
 		Name:        req.Name,
 		Description: req.Description,
-		SchemaJSON:  string(schemaBytes),
-		WidthMM:     req.Schema.WidthMM,
-		HeightMM:    req.Schema.HeightMM,
+		SchemaJSON:  req.SchemaJSON,
+		WidthMM:     req.WidthMM,
+		HeightMM:    req.HeightMM,
 	}
 
 	if err := db.Templates.CreateTemplate(c.Request.Context(), template); err != nil {
@@ -173,13 +155,7 @@ func (h *TemplateHandler) CreateTemplate(c *gin.Context) {
 		return
 	}
 
-	response, err := h.templateToResponse(created)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process template"})
-		return
-	}
-
-	c.JSON(http.StatusCreated, response)
+	c.JSON(http.StatusCreated, h.templateToResponse(created))
 }
 
 func (h *TemplateHandler) GetTemplate(c *gin.Context) {
@@ -199,13 +175,7 @@ func (h *TemplateHandler) GetTemplate(c *gin.Context) {
 		return
 	}
 
-	response, err := h.templateToResponse(template)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process template"})
-		return
-	}
-
-	c.JSON(http.StatusOK, response)
+	c.JSON(http.StatusOK, h.templateToResponse(template))
 }
 
 func (h *TemplateHandler) UpdateTemplate(c *gin.Context) {
@@ -244,21 +214,28 @@ func (h *TemplateHandler) UpdateTemplate(c *gin.Context) {
 		template.Name = req.Name
 	}
 
-	if req.Description != "" {
-		template.Description = req.Description
+	if req.Description != nil {
+		template.Description = *req.Description
 	}
 
-	var schema LabelSchemaJSON
-	if req.Schema.WidthMM > 0 {
-		schema = req.Schema
-		template.WidthMM = req.Schema.WidthMM
-		template.HeightMM = req.Schema.HeightMM
-		schemaBytes, err := json.Marshal(schema)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "failed to encode schema"})
+	if req.SchemaJSON != nil || req.WidthMM != nil || req.HeightMM != nil {
+		schemaJSON, widthMM, heightMM := template.SchemaJSON, template.WidthMM, template.HeightMM
+		if req.SchemaJSON != nil {
+			schemaJSON = *req.SchemaJSON
+		}
+		if req.WidthMM != nil {
+			widthMM = *req.WidthMM
+		}
+		if req.HeightMM != nil {
+			heightMM = *req.HeightMM
+		}
+		if err := h.validateTemplateSchema(schemaJSON, widthMM, heightMM); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		template.SchemaJSON = string(schemaBytes)
+		template.SchemaJSON = schemaJSON
+		template.WidthMM = widthMM
+		template.HeightMM = heightMM
 	}
 
 	if err := db.Templates.UpdateTemplate(c.Request.Context(), template); err != nil {
@@ -272,13 +249,7 @@ func (h *TemplateHandler) UpdateTemplate(c *gin.Context) {
 		return
 	}
 
-	response, err := h.templateToResponse(updated)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process template"})
-		return
-	}
-
-	c.JSON(http.StatusOK, response)
+	c.JSON(http.StatusOK, h.templateToResponse(updated))
 }
 
 func (h *TemplateHandler) DeleteTemplate(c *gin.Context) {
@@ -490,22 +461,37 @@ func (h *TemplateHandler) PrintTemplate(c *gin.Context) {
 	c.JSON(http.StatusAccepted, QuickPrintResponse{JobID: jobID})
 }
 
-func (h *TemplateHandler) templateToResponse(t *db.LabelTemplate) (*TemplateResponse, error) {
-	var schema LabelSchemaJSON
-	if err := json.Unmarshal([]byte(t.SchemaJSON), &schema); err != nil {
-		return nil, err
-	}
-
-	return &TemplateResponse{
+func (h *TemplateHandler) templateToResponse(t *db.LabelTemplate) TemplateResponse {
+	return TemplateResponse{
 		ID:          t.ID,
 		Name:        t.Name,
 		Description: t.Description,
-		Schema:      schema,
+		SchemaJSON:  t.SchemaJSON,
 		WidthMM:     t.WidthMM,
 		HeightMM:    t.HeightMM,
 		CreatedAt:   t.CreatedAt,
 		UpdatedAt:   t.UpdatedAt,
-	}, nil
+	}
+}
+
+func (h *TemplateHandler) validateTemplateSchema(schemaJSON string, widthMM, heightMM float64) error {
+	var schema LabelSchemaJSON
+	if err := json.Unmarshal([]byte(schemaJSON), &schema); err != nil {
+		return fmt.Errorf("invalid schema_json: %w", err)
+	}
+	if errors := validateSchema(&schema); len(errors) > 0 {
+		return fmt.Errorf("invalid schema: %s", strings.Join(errors, "; "))
+	}
+	if widthMM <= 0 || heightMM <= 0 {
+		return fmt.Errorf("width_mm and height_mm must be greater than 0")
+	}
+	if schema.WidthMM != widthMM || schema.HeightMM != heightMM {
+		return fmt.Errorf("schema dimensions must match width_mm and height_mm")
+	}
+	if _, err := h.tsplGenerator.ParseSchema(schemaJSON); err != nil {
+		return fmt.Errorf("invalid schema_json: %w", err)
+	}
+	return nil
 }
 
 func validateSchema(schema *LabelSchemaJSON) []string {
