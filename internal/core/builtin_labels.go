@@ -41,7 +41,7 @@ var OperationsDense = LabelDocument{
 	},
 }
 
-var LegacyPolished = LabelDocument{
+var PolishedLabel = LabelDocument{
 	Version: 1,
 	Page:    builtInLabelPage,
 	Elements: []LabelElement{
@@ -64,7 +64,7 @@ var LegacyPolished = LabelDocument{
 	},
 }
 
-var CompactCurrent = LabelDocument{
+var CompactLabel = LabelDocument{
 	Version: 1,
 	Page:    builtInLabelPage,
 	Elements: []LabelElement{
