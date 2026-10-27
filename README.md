@@ -2,12 +2,119 @@
 
 A Dockerized print spool for TSC thermal printers with TSPL2 label generation, AI-powered label design, and comprehensive job queue management.
 
-## Features
+## ORRN Edge V1
+
+This branch also builds `cmd/orrn-edge`, the outbound-only site agent. It is a
+different runtime from `cmd/spool`: do not use a legacy tunnel token as its
+enrollment token or assume the existing Agni pilot has migrated to it.
+
+### Build and verify
+
+```bash
+CGO_ENABLED=0 go build -o /tmp/orrn-edge ./cmd/orrn-edge
+/tmp/orrn-edge version
+go test ./...
+go vet ./...
+go test ./cmd/orrn-edge -run TestLocalEdgeEndToEnd -v
+bash scripts/release_test.sh
+```
+
+The acceptance test builds and starts the real agent against a signed fake
+control plane and fake TCP TA220. It proves enrollment, initial config and
+snapshots, B/A/C print payloads and copy counts, event delivery, restart
+without duplicate transmission, cached reads, authorized offline reprint, and
+revocation with diagnostic history retained. `TestPhysicalLabelFixtures`
+checks decimal media geometry, CRLF and QR/barcode selection only; it is not
+physical-print evidence. `TestWorkerRedirectsAfterVerifiedDHCPRecoveryWithoutDuplicatePrint`
+proves zero-byte DHCP recovery with a durable endpoint event, while
+`TestWorkerNeverRedirectsAfterPayloadByteOne` proves interrupted writes never
+trigger redirection.
+
+Physical ruler, QR/barcode scan, and copy-count checks remain manual cutover
+gates. Administrator calibration, cutter, RTC, and font-download commands are
+validated against discovered features and audited; no action adds `AUTO.BAS`,
+reset, firmware update, arbitrary file execution, or ignored printer responses.
+DHCP recovery probes only OS neighbor-table addresses with a matching verified
+MAC and supported model; it never scans the network or rewrites desired config.
+
+SQLite uses the pure-Go `modernc.org/sqlite` driver, including archive access.
+Release artifacts are Windows AMD64, Linux AMD64 and Linux ARM64; each must
+be a real `cmd/orrn-edge` executable. Publish explicit semver artifacts with
+SHA-256 sidecars and `orrn-edge-release.json`; Docker references are pinned by
+digest. A successful local build does not imply a published release exists.
+Cross-compilation is not service verification. Before plant cutover, run the
+Windows SCM lifecycle on a Windows VM and systemd plus native AMD64 artifact
+checks on Linux. Do not treat QEMU failures or container health alone as proof
+of native service readiness.
+
+### Install
+
+Deploy the matching ORRN `/api/edge/v1/*` control plane and D1 migrations before
+enrollment. Create a company-bound node and supply its single-use token through
+an owner-only file or stdin. No tunnel or public station hostname is needed.
+
+For Linux, `packaging/linux/install.sh` reads `ORRN_EDGE_VERSION`,
+`ORRN_EDGE_URL`, `ORRN_EDGE_SHA256`, `ORRN_API_ORIGIN` and
+`ORRN_ENROLL_TOKEN_FILE`. The first three come from the verified release
+manifest. It does not accept installer `--version` flags. Run it as root with
+those variables preserved. Defaults are `/usr/local/bin/orrn-edge` and
+`/var/lib/orrn-edge/{node.json,edge.db}`; state belongs to `orrn-edge` and node
+credentials are `0600`.
+
+For Docker, `packaging/docker/install.sh` requires `ORRN_EDGE_IMAGE` pinned
+by `@sha256:`, plus API origin and a private enrollment token file. Preserve
+the `/var/lib/orrn-edge` volume. Publish only the intended LAN fallback port;
+do not publish the administration listener. Existing-install upgrades retain
+the old container/configuration and take a consistent database backup before
+health-gating the candidate.
+
+Compose uses the same immutable image. Set `ORRN_EDGE_IMAGE`,
+`ORRN_ENROLL_TOKEN_FILE`, `ORRN_EDGE_FALLBACK_PORT` and `TZ` explicitly. Mount
+the token as a user-owned `0600` file. Successful enrollment truncates that
+file before the daemon starts; a failure stops startup rather than exposing a
+listener or silently reusing the token.
+
+On Windows, verify the downloaded executable's hash and use an elevated shell:
+`orrn-edge-windows-amd64.exe install --api-origin https://api.orrn.in`.
+Enrollment and administrator bootstrap use stdin, not command-line secrets;
+provide protected input. Installation registers the Windows service and
+recovery actions. State remains under `C:\ProgramData\ORRN\Edge`; uninstall
+preserves it.
+
+### Operation and safety
+
+- Admin UI: `http://127.0.0.1:8081/admin`; LAN fallback: port `8080`.
+  Use SSH/local access to administer a VM. Bootstrap the administrator with
+  `admin-password --state-dir ...` using protected stdin, then create site-local
+  viewer/printer users in the admin UI.
+- `healthcheck --url http://127.0.0.1:8080/healthz` requires enrolled identity,
+  writable storage, applied config and complete stock/orders/dies/print-status/
+  company-format snapshots. An initialized node remains locally usable during
+  cloud outages; an unenrolled listener is not ready.
+- Printing uses durable command resolution, per-printer serialized sessions and
+  an event outbox. Never automatically retry `sent` or `outcome_unknown`: bytes
+  may already have produced a label. Cancellation wins only before transmission.
+- Fallback is cached reads and explicit eligible reprints, not offline stock,
+  order, packing or dispatch mutation. Revocation disables fallback access and
+  clears local grants/cache while preserving diagnostic history.
+- Upgrade through the service-aware installer/`upgrade` path; keep the previous
+  executable/image and consistent state backup. Never run two nodes with copied
+  identity/state concurrently. Pi migration uses a native ARM64 release and
+  stops the old node before starting the restored identity.
+- Check existing listener ports before installing a pilot on a machine already
+  running the legacy spool. No legacy system is stopped without authorization.
+
+The following sections document the retained legacy `cmd/spool` API, not the
+default Edge Docker runtime.
+
+## Legacy spool features
 
 - **Printer Management** - TCP/IP connectivity on port 9100, real-time status monitoring, health checks
 - **Dynamic TSPL2 Generation** - JSON schema to TSPL2 conversion with variable substitution
 - **AI-Powered Label Design** - Gemini 2.0 Flash integration for natural language label creation
-- **Job Queue** - Priority-based processing with automatic retry and configurable workers
+- **Job Queue** - Atomic pending-to-processing claims, priority processing, and configurable workers
+- **Print recovery** - Automatic retry only before device bytes; interrupted or partial writes fail for explicit operator retry
+- **TSC status** - Serialized per-printer socket access with one-byte TA220 and four-byte status decoding
 - **Real-time Monitoring** - Printer status polling, job progress tracking, print counters
 - **Webhook Notifications** - Event-driven notifications for job completion, failures, and status changes
 - **Encrypted Job Archival** - Secure long-term storage with passphrase protection
@@ -22,7 +129,7 @@ Context
 $0.61 spent
 ```
 
-## Quick Start
+## Legacy spool quick start
 
 ### Prerequisites
 
@@ -30,21 +137,17 @@ $0.61 spent
 - TSC thermal printer with network connectivity
 - (Optional) Google Gemini API key for AI label design
 
-### Run with Docker Compose
+### Run the retained legacy service
 
 ```bash
-# Clone the repository
-git clone https://github.com/orrn/spool.git
-cd spool
-
-# Copy environment file
-cp .env.example .env
-
-# Start the service
-docker-compose up -d
+go run ./cmd/spool --config config.yaml
 ```
 
-Access the web UI at `http://localhost:8080`
+The legacy web UI uses `http://localhost:8080`. Do not run it on the same port
+or state directory as Edge. The branch's current Dockerfile/Compose files build
+Edge, not this legacy executable; preserve the existing deployed legacy image
+when preparing a cutover.
+
 
 ### First-time Setup
 

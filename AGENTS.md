@@ -6,11 +6,32 @@ Instructions for AI agents working on this codebase.
 
 TSC Spool is a Dockerized print spool for TSC thermal printers. It manages printers, generates TSPL2 labels, handles job queues, and provides a web UI for administration.
 
+This branch also implements the outbound-only `cmd/orrn-edge` agent. Its runtime
+packages are `internal/node`, `jobs`, `printer`, `worker`, `edgeclient`, `cache`,
+`localui`, `install` and `service`; embedded local applications live in
+`web/templates/edge` and `web/static/edge`.
+The current Dockerfile/Compose and release workflow build Edge. `cmd/spool`
+remains the legacy tunnel runtime and must not be silently substituted for Edge.
+Read README's ORRN Edge section and the verified deployment skill at
+`../../.claude/skills/orrn-spool-edge/SKILL.md` when working in this workspace.
+Native Edge artifacts must use `CGO_ENABLED=0`, explicit release versions and
+the pure-Go SQLite driver. Never publish a non-main package archive as an
+executable or patch node secrets into immutable release binaries.
+
+## Reformed spool safety and evidence
+
+- B is operations-dense, A is polished alternate, and C is compact alternate. Keep all three as versioned label documents; compiled acceptance must verify their TSPL geometry, symbology and copy counts.
+- Physical ruler measurements, QR/Code 128 scans and physical copy counts are separate observed-evidence gates. Never mark them passed from renderer tests, `sent` status, container health or cross-compilation.
+- Discovery is read-only evidence. Desired media/post-print settings change only through authorized preferences; discovered optional hardware never activates itself.
+- DHCP recovery uses OS neighbor state only, requires matching verified MAC plus genuine status and a supported model, and retransmits only after a zero-byte retryable outcome. Never redirect `outcome_unknown` jobs.
+- Device actions are limited to audited calibrate, cutter, RTC and bounded font download after feature validation. Do not add `AUTO.BAS`, reset, firmware update, arbitrary file execution or response suppression.
+- Keep the legacy Fourcubes spool and live deployment unchanged until native Windows SCM, Linux systemd, Docker rollback and ARM64 execution evidence is separately approved.
+
 ## Technology Stack
 
 - **Language:** Go 1.22
 - **Web Framework:** Gin
-- **Database:** SQLite (main), SQLite + age encryption (archives)
+- **Database:** SQLite via `modernc.org/sqlite` (pure Go), age-encrypted archives
 - **Web UI:** HTMX + Tailwind CSS + Alpine.js
 - **AI:** Google Gemini 3 Flash
 
@@ -26,8 +47,8 @@ go run ./cmd/spool
 # Build binary
 go build -o spool ./cmd/spool
 
-# Build for production (with optimizations)
-CGO_ENABLED=1 go build -ldflags="-w -s" -o spool ./cmd/spool
+# Build for production (pure-Go SQLite, with optimizations)
+CGO_ENABLED=0 go build -ldflags="-w -s" -o spool ./cmd/spool
 
 # Run with Docker
 docker-compose up -d --build
@@ -115,6 +136,15 @@ Generate labels from schema:
 generator := &core.TSPL2Generator{}
 tspl, err := generator.Generate(schema, variables)
 ```
+
+### Legacy queue and printer safety
+
+- `cmd/spool` remains the signed inbound/tunnel runtime. It does not enroll through Edge V1.
+- Claim jobs with a status-changing SQL compare-and-swap; duplicate channel delivery must not cause another device write.
+- Startup marks interrupted `processing` jobs failed with `process_interrupted_outcome_unknown`; never blindly requeue them.
+- Retry only failures known to precede device bytes. Partial writes return `ErrPrintOutcomeUnknown` and require explicit operator retry.
+- Serialize status and payload I/O per physical printer. TA220 one-byte and documented four-byte replies are both valid.
+- `PrinterManager.Print` owns the printer total counter; the queue owns only the daily counter.
 
 ## Environment Variables
 
