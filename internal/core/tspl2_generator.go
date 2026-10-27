@@ -26,11 +26,37 @@ type LabelElement struct {
 	X    int    `json:"x"`
 	Y    int    `json:"y"`
 
-	Content   string `json:"content,omitempty"`
-	Font      string `json:"font,omitempty"`
-	Rotation  int    `json:"rotation,omitempty"`
-	XScale    int    `json:"x_scale,omitempty"`
-	YScale    int    `json:"y_scale,omitempty"`
+	ID              string  `json:"id,omitempty"`
+	Xmm             float64 `json:"xMm,omitempty"`
+	Ymm             float64 `json:"yMm,omitempty"`
+	Variable        string  `json:"variable,omitempty"`
+	FontSizeMM      float64 `json:"fontSizeMm,omitempty"`
+	WidthMM         float64 `json:"widthMm,omitempty"`
+	HeightMM        float64 `json:"heightMm,omitempty"`
+	QuietZoneMM     float64 `json:"quietZoneMm,omitempty"`
+	CellMM          float64 `json:"cellMm,omitempty"`
+	ModuleMM        float64 `json:"moduleMm,omitempty"`
+	ECC             int     `json:"ecc,omitempty"`
+	Model           int     `json:"model,omitempty"`
+	Mask            string  `json:"mask,omitempty"`
+	Mode            string  `json:"mode,omitempty"`
+	AztecType       string  `json:"aztecType,omitempty"`
+	Layers          int     `json:"layers,omitempty"`
+	ErrorCorrection int     `json:"errorCorrection,omitempty"`
+	WhiteOnBlack    bool    `json:"whiteOnBlack,omitempty"`
+	MaxiCodeMode    int     `json:"maxicodeMode,omitempty"`
+	CompositeType   string  `json:"compositeType,omitempty"`
+	RSSType         string  `json:"rssType,omitempty"`
+	Truncated       bool    `json:"truncated,omitempty"`
+	StrokeMM        float64 `json:"strokeMm,omitempty"`
+	Align           string  `json:"align,omitempty"`
+	HumanReadable   bool    `json:"humanReadable,omitempty"`
+
+	Content  string `json:"content,omitempty"`
+	Font     string `json:"font,omitempty"`
+	Rotation int    `json:"rotation,omitempty"`
+	XScale   int    `json:"x_scale,omitempty"`
+	YScale   int    `json:"y_scale,omitempty"`
 
 	Symbology string `json:"symbology,omitempty"`
 	Height    int    `json:"height,omitempty"`
@@ -63,7 +89,7 @@ type LabelElement struct {
 
 	ImagePath string `json:"image_path,omitempty"`
 
-	Width  int `json:"width,omitempty"`
+	Width   int `json:"width,omitempty"`
 	Spacing int `json:"spacing,omitempty"`
 }
 
@@ -148,10 +174,10 @@ func (g *TSPL2Generator) Generate(schema *LabelSchema, variables map[string]stri
 
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("SIZE %.0f mm, %.0f mm\n", schema.WidthMM, schema.HeightMM))
-	sb.WriteString(fmt.Sprintf("GAP %.0f mm, 0 mm\n", schema.GapMM))
-	sb.WriteString("DIRECTION 0\n")
-	sb.WriteString("CLS\n")
+	sb.WriteString(fmt.Sprintf("SIZE %.2f mm, %.2f mm\r\n", schema.WidthMM, schema.HeightMM))
+	sb.WriteString(fmt.Sprintf("GAP %.2f mm, 0 mm\r\n", schema.GapMM))
+	sb.WriteString("DIRECTION 0\r\n")
+	sb.WriteString("CLS\r\n")
 
 	for _, elem := range schema.Elements {
 		cmd, err := g.generateElement(&elem, variables, schema)
@@ -160,11 +186,11 @@ func (g *TSPL2Generator) Generate(schema *LabelSchema, variables map[string]stri
 		}
 		if cmd != "" {
 			sb.WriteString(cmd)
-			sb.WriteString("\n")
+			sb.WriteString("\r\n")
 		}
 	}
 
-	sb.WriteString("PRINT 1\n")
+	sb.WriteString("PRINT 1,1\r\n")
 	return sb.String(), nil
 }
 
@@ -234,8 +260,9 @@ func (g *TSPL2Generator) generateBarcode(elem *LabelElement, variables map[strin
 	if wide == 0 {
 		wide = 2
 	}
-	return fmt.Sprintf(`BARCODE %d,%d,"%s",%d,%d,%d,%d,%d,"%s"`,
-		elem.X, elem.Y, symbology, height, elem.Rotation, narrow, wide, narrow, content)
+	// TSPL2 BARCODE: X, Y, "type", height, human_readable (1), rotation (0/90/180/270), narrow, wide, "content"
+	return fmt.Sprintf(`BARCODE %d,%d,"%s",%d,1,%d,%d,%d,"%s"`,
+		elem.X, elem.Y, symbology, height, elem.Rotation, narrow, wide, content)
 }
 
 func (g *TSPL2Generator) generateQRCode(elem *LabelElement, variables map[string]string, schema *LabelSchema) string {
@@ -249,7 +276,7 @@ func (g *TSPL2Generator) generateQRCode(elem *LabelElement, variables map[string
 	if cellWidth == 0 {
 		cellWidth = 4
 	}
-	return fmt.Sprintf(`QRCODE %d,%d,%s,%d,%d,A,"%s"`, elem.X, elem.Y, level, cellWidth, elem.Rotation, content)
+	return fmt.Sprintf(`QRCODE %d,%d,%s,%d,A,%d,"%s"`, elem.X, elem.Y, level, cellWidth, elem.Rotation, content)
 }
 
 func (g *TSPL2Generator) generatePDF417(elem *LabelElement, variables map[string]string, schema *LabelSchema) string {
@@ -282,11 +309,7 @@ func (g *TSPL2Generator) generateDataMatrix(elem *LabelElement, variables map[st
 	if moduleSize == 0 {
 		moduleSize = 2
 	}
-	encoding := elem.Encoding
-	if encoding == "" {
-		encoding = "A"
-	}
-	return fmt.Sprintf(`DMATRIX %d,%d,%d,%d,%s,"%s"`, elem.X, elem.Y, moduleSize, elem.Rotation, encoding, content)
+	return fmt.Sprintf(`DMATRIX %d,%d,%d,%d,x%d,r%d,"%s"`, elem.X, elem.Y, elem.Width, elem.Height, moduleSize, elem.Rotation, content)
 }
 
 func (g *TSPL2Generator) generateBox(elem *LabelElement) string {
@@ -425,16 +448,16 @@ func (g *TSPL2Generator) GenerateMultiLabel(schema *LabelSchema, labelDataList [
 
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("SIZE %.0f mm, %.0f mm\n", schema.WidthMM, schema.HeightMM))
-	sb.WriteString(fmt.Sprintf("GAP %.0f mm, 0 mm\n", schema.GapMM))
-	sb.WriteString("DIRECTION 0\n")
+	sb.WriteString(fmt.Sprintf("SIZE %.2f mm, %.2f mm\r\n", schema.WidthMM, schema.HeightMM))
+	sb.WriteString(fmt.Sprintf("GAP %.2f mm, 0 mm\r\n", schema.GapMM))
+	sb.WriteString("DIRECTION 0\r\n")
 
 	for _, variables := range labelDataList {
 		if err := g.ValidateVariables(schema, variables); err != nil {
 			return "", err
 		}
 
-		sb.WriteString("CLS\n")
+		sb.WriteString("CLS\r\n")
 		for _, elem := range schema.Elements {
 			cmd, err := g.generateElement(&elem, variables, schema)
 			if err != nil {
@@ -442,10 +465,10 @@ func (g *TSPL2Generator) GenerateMultiLabel(schema *LabelSchema, labelDataList [
 			}
 			if cmd != "" {
 				sb.WriteString(cmd)
-				sb.WriteString("\n")
+				sb.WriteString("\r\n")
 			}
 		}
-		sb.WriteString(fmt.Sprintf("PRINT %d\n", copies))
+		sb.WriteString(fmt.Sprintf("PRINT %d,1\r\n", copies))
 	}
 
 	return sb.String(), nil
