@@ -3,6 +3,7 @@ package edgeclient
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -48,6 +49,7 @@ type EnrollResponse struct {
 }
 
 type ReportedCapabilities struct {
+	Model         string   `json:"model,omitempty"`
 	MACAddress    string   `json:"macAddress,omitempty"`
 	Host          string   `json:"host"`
 	Port          int      `json:"port"`
@@ -238,6 +240,25 @@ func (c *Client) printerByID(id string) (printer.Target, bool) {
 		}
 	}
 	return printer.Target{}, false
+}
+
+func (c *Client) discoveredCapabilities(id string) (printer.Capabilities, bool) {
+	if c.reporter == nil {
+		return printer.Capabilities{}, false
+	}
+	for _, report := range c.reporter() {
+		if report.PrinterID != id || report.Capabilities == nil {
+			continue
+		}
+		capabilities := report.Capabilities
+		return printer.Capabilities{
+			Model: capabilities.Model, MACAddress: capabilities.MACAddress,
+			Host: capabilities.Host, Port: capabilities.Port, Features: append([]string(nil), capabilities.Features...),
+			MediaType: capabilities.MediaType, MediaWidthMM: capabilities.MediaWidthMM, MediaHeightMM: capabilities.MediaHeightMM,
+			GapMM: capabilities.GapMM, DPI: capabilities.DPI, SpeedInSec: capabilities.SpeedInSec, Density: capabilities.Density, Cutter: capabilities.Cutter,
+		}, true
+	}
+	return printer.Capabilities{}, false
 }
 
 func (c *Client) configVersion() int {
@@ -490,6 +511,56 @@ func (c *Client) confirmPendingCredential(ctx context.Context, st node.State, pe
 	return c.store.PromotePending(pending.Version)
 }
 
+func (c *Client) resolveDeviceAction(ctx context.Context, cmd LeasedCommand) (jobs.CommandResolution, error) {
+	var payload struct {
+		PrinterID  string `json:"printerId"`
+		Action     string `json:"action"`
+		Enabled    bool   `json:"enabled"`
+		RTC        string `json:"rtc"`
+		FontBase64 string `json:"fontBase64"`
+	}
+	in := jobs.PrintCommandInput{CommandID: cmd.CommandID, Kind: "device_action", JobKey: "action:" + cmd.CommandID, Copies: 1}
+	if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+		in.InvalidReason = "Malformed device_action payload"
+		return c.jobStore.ResolvePrintCommand(ctx, in)
+	}
+	in.PrinterID = payload.PrinterID
+	if _, ok := c.printerByID(payload.PrinterID); !ok {
+		in.InvalidReason = fmt.Sprintf("Printer %q is not in this node's config", payload.PrinterID)
+		return c.jobStore.ResolvePrintCommand(ctx, in)
+	}
+	capabilities, ok := c.discoveredCapabilities(payload.PrinterID)
+	if !ok {
+		in.InvalidReason = "Printer capabilities have not been verified"
+		return c.jobStore.ResolvePrintCommand(ctx, in)
+	}
+	action := printer.DeviceAction{Action: payload.Action, Enabled: payload.Enabled}
+	if payload.RTC != "" {
+		rtc, err := time.Parse(time.RFC3339, payload.RTC)
+		if err != nil {
+			in.InvalidReason = "Invalid RTC timestamp"
+			return c.jobStore.ResolvePrintCommand(ctx, in)
+		}
+		action.RTC = rtc
+	}
+	if payload.FontBase64 != "" {
+		font, err := base64.StdEncoding.DecodeString(payload.FontBase64)
+		if err != nil {
+			in.InvalidReason = "Invalid font encoding"
+			return c.jobStore.ResolvePrintCommand(ctx, in)
+		}
+		action.Font = font
+	}
+	tspl, err := printer.BuildDeviceAction(action, capabilities)
+	if err != nil {
+		in.InvalidReason = err.Error()
+	} else {
+		in.TSPL = tspl
+		in.PayloadHash = sha256Hex(tspl)
+	}
+	return c.jobStore.ResolvePrintCommand(ctx, in)
+}
+
 func (c *Client) handleLeasedCommand(ctx context.Context, st node.State, cmd LeasedCommand) error {
 	if c.jobStore == nil {
 		return nil
@@ -535,6 +606,8 @@ func (c *Client) handleLeasedCommand(ctx context.Context, st node.State, cmd Lea
 			in.InvalidReason = fmt.Sprintf("Printer %q is not in this node's config", payload.PrinterID)
 		}
 		res, err = c.jobStore.ResolvePrintCommand(ctx, in)
+	case "device_action":
+		res, err = c.resolveDeviceAction(ctx, cmd)
 	case "cancel_job":
 		var payload struct {
 			AgentJobID string `json:"agentJobId"`

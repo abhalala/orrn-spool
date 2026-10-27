@@ -801,11 +801,20 @@ func (s *Store) RecordTestPrintResult(ctx context.Context, jobID, reason string)
 	}
 	var kind string
 	err = tx.QueryRowContext(ctx, `SELECT kind FROM edge_commands WHERE command_id = ? AND deployment_id = ?`, job.CommandID, deploymentID).Scan(&kind)
-	if errors.Is(err, sql.ErrNoRows) || kind != "test_print" {
+	if errors.Is(err, sql.ErrNoRows) {
 		return tx.Commit()
 	}
 	if err != nil {
 		return err
+	}
+	eventKind := ""
+	switch kind {
+	case "test_print":
+		eventKind = "test_print_result"
+	case "device_action":
+		eventKind = "device_action_result"
+	default:
+		return tx.Commit()
 	}
 	now := nowISO()
 	nextSeq := job.Sequence + 1
@@ -816,7 +825,7 @@ func (s *Store) RecordTestPrintResult(ctx context.Context, jobID, reason string)
 	if reason != "" {
 		reasonVal = reason
 	}
-	if err := insertJobEvent(ctx, tx, job.ID, nextSeq, "test_print_result", now, map[string]any{
+	if err := insertJobEvent(ctx, tx, job.ID, nextSeq, eventKind, now, map[string]any{
 		"state":     string(job.State),
 		"jobKey":    job.JobKey,
 		"commandId": job.CommandID,

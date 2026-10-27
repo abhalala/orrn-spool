@@ -301,6 +301,7 @@ func (w *Worker) Reports() []edgeclient.ReportedPrinter {
 		if st.capabilities != nil {
 			capabilities := st.capabilities
 			r.Capabilities = &edgeclient.ReportedCapabilities{
+				Model:         capabilities.Model,
 				MACAddress:    capabilities.MACAddress,
 				Host:          capabilities.Host,
 				Port:          capabilities.Port,
