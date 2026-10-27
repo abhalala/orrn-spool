@@ -9,11 +9,12 @@ import (
 
 // Target is one printer from the node's desired configuration.
 type Target struct {
-	PrinterID string `json:"printerId"`
-	Name      string `json:"name"`
-	Host      string `json:"host"`
-	Port      int    `json:"port"`
-	Paused    bool   `json:"paused"`
+	PrinterID  string `json:"printerId"`
+	Name       string `json:"name"`
+	Host       string `json:"host"`
+	Port       int    `json:"port"`
+	Paused     bool   `json:"paused"`
+	MACAddress string `json:"macAddress,omitempty"`
 	// Label stock, used only for the built-in test label.
 	LabelWidthMM  float64 `json:"labelWidthMm,omitempty"`
 	LabelHeightMM float64 `json:"labelHeightMm,omitempty"`

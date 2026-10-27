@@ -15,6 +15,7 @@ const maxCapabilityResponse = 64 * 1024
 // Capabilities is evidence returned by a printer. None of these fields change
 // desired print configuration; CUTTER and media values are observations only.
 type Capabilities struct {
+	Model         string
 	MACAddress    string
 	Host          string
 	Port          int
@@ -96,6 +97,9 @@ func parseCapabilities(raw string) (Capabilities, int) {
 		key = strings.NewReplacer(" ", "", "_", "", "-", "").Replace(strings.ToUpper(strings.TrimSpace(key)))
 		value = strings.TrimSpace(value)
 		switch key {
+		case "MODEL":
+			out.Model = strings.ToUpper(value)
+			recognized++
 		case "MAC", "MACADDRESS":
 			out.MACAddress = NormalizeMAC(value)
 			recognized++
