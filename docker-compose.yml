@@ -1,26 +1,31 @@
-version: '3.8'
+version: "2.4"
 
 services:
-  spool:
-    build: .
-    image: orrn/spool:latest
-    container_name: tsc-spool
+  orrn-edge:
+    image: "${ORRN_EDGE_IMAGE}"
+    container_name: orrn-edge
     restart: unless-stopped
     ports:
-      - "${SPOOL_PORT:-8080}:8080"
+      - "${ORRN_EDGE_FALLBACK_PORT}:8080"
     volumes:
-      - spool-data:/app/data
-      - ./config.yaml:/app/config.yaml:ro
+      - orrn-edge-data:/var/lib/orrn-edge
+      - ${ORRN_ENROLL_TOKEN_FILE}:/run/orrn-edge/enrollment-token:rw
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        if [ ! -s /var/lib/orrn-edge/node.json ]; then
+          /usr/local/bin/orrn-edge enroll --state-dir /var/lib/orrn-edge --api-origin "$${ORRN_API_ORIGIN:-https://api.orrn.in}" --token-file /run/orrn-edge/enrollment-token
+          truncate -s 0 /run/orrn-edge/enrollment-token
+        fi
+        exec /usr/local/bin/orrn-edge run --state-dir /var/lib/orrn-edge --admin-addr 127.0.0.1:8081 --fallback-addr :8080
     environment:
-      - SPOOL_PORT=${SPOOL_PORT:-8080}
-      - SPOOL_DB_PATH=/app/data/spool.db
-      - SPOOL_ARCHIVE_PATH=/app/data/archives
-      - SPOOL_LOG_LEVEL=${SPOOL_LOG_LEVEL:-info}
-      - TZ=${TZ:-UTC}
+      - ORRN_EDGE_STATE_DIR=/var/lib/orrn-edge
+      - TZ=${TZ}
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "/usr/local/bin/orrn-edge", "healthcheck", "--url", "http://127.0.0.1:8080/healthz"]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
       start_period: 10s
     logging:
@@ -30,4 +35,4 @@ services:
         max-file: "3"
 
 volumes:
-  spool-data:
+  orrn-edge-data:

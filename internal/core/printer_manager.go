@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -21,13 +22,14 @@ var (
 	ErrTimeout              = errors.New("operation timed out")
 	ErrInvalidStatus        = errors.New("invalid status response")
 	ErrPrinterCannotPrint   = errors.New("printer cannot print in current state")
+	ErrPrintOutcomeUnknown  = errors.New("print outcome unknown")
 	ErrPrinterAlreadyExists = errors.New("printer already exists")
 )
 
 const (
-	defaultTCPPort         = 9100
-	statusCommand          = "\x1b!?"
-	statusResponseLength   = 4
+	defaultTCPPort          = 9100
+	statusCommand           = "\x1b!?"
+	statusResponseLength    = 4
 	defaultReadWriteTimeout = 10 * time.Second
 )
 
@@ -73,6 +75,7 @@ type PrinterManager struct {
 	config        *config.PrintersConfig
 	printers      map[int64]*Printer
 	connections   map[int64]net.Conn
+	deviceLocks   map[int64]*sync.Mutex
 	mu            sync.RWMutex
 	webhookSender WebhookSender
 	stopCh        chan struct{}
@@ -85,6 +88,7 @@ func NewPrinterManager(database *sql.DB, cfg *config.PrintersConfig, webhookSend
 		config:        cfg,
 		printers:      make(map[int64]*Printer),
 		connections:   make(map[int64]net.Conn),
+		deviceLocks:   make(map[int64]*sync.Mutex),
 		webhookSender: webhookSender,
 		stopCh:        make(chan struct{}),
 	}
@@ -92,14 +96,14 @@ func NewPrinterManager(database *sql.DB, cfg *config.PrintersConfig, webhookSend
 
 func (pm *PrinterManager) Start() {
 	pm.loadPrintersFromDB()
-	
+
 	pm.wg.Add(1)
 	go pm.healthCheckLoop()
 }
 
 func (pm *PrinterManager) Stop() {
 	close(pm.stopCh)
-	
+
 	pm.mu.Lock()
 	for id, conn := range pm.connections {
 		if conn != nil {
@@ -108,7 +112,7 @@ func (pm *PrinterManager) Stop() {
 		}
 	}
 	pm.mu.Unlock()
-	
+
 	pm.wg.Wait()
 }
 
@@ -118,7 +122,7 @@ func (pm *PrinterManager) loadPrintersFromDB() {
 		return
 	}
 	defer rows.Close()
-	
+
 	for rows.Next() {
 		var p Printer
 		var lastSeenAt sql.NullTime
@@ -141,75 +145,93 @@ func (pm *PrinterManager) loadPrintersFromDB() {
 func (pm *PrinterManager) AddPrinter(p *Printer) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-	
+
 	if _, exists := pm.printers[p.ID]; exists {
 		return ErrPrinterAlreadyExists
 	}
-	
+
 	if p.Port == 0 {
 		p.Port = defaultTCPPort
 	}
 	p.Status = "unknown"
-	
+
 	_, err := pm.db.Exec(db.InsertPrinter,
 		p.Name, p.IPAddress, p.Port, p.DPI,
 		p.LabelWidthMM, p.LabelHeightMM, p.GapMM, p.Status,
 	)
 	if err != nil {
+		// HTTP creation inserts first, then registers the runtime printer here.
+		if p.ID != 0 && strings.Contains(strings.ToLower(err.Error()), "unique") {
+			pm.printers[p.ID] = p
+			return nil
+		}
 		return fmt.Errorf("failed to insert printer: %w", err)
 	}
-	
+
 	pm.printers[p.ID] = p
-	
+
 	return nil
 }
 
 func (pm *PrinterManager) RemovePrinter(id int64) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-	
+
 	if conn, exists := pm.connections[id]; exists {
 		if conn != nil {
 			conn.Close()
 		}
 		delete(pm.connections, id)
 	}
-	
+
 	if _, exists := pm.printers[id]; !exists {
 		return ErrPrinterNotFound
 	}
-	
+
 	_, err := pm.db.Exec(db.DeletePrinter, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete printer: %w", err)
 	}
-	
+
 	delete(pm.printers, id)
-	
+
 	return nil
 }
 
 func (pm *PrinterManager) GetPrinter(id int64) (*Printer, error) {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
-	
+
 	p, exists := pm.printers[id]
 	if !exists {
 		return nil, ErrPrinterNotFound
 	}
-	
+
 	return p, nil
 }
 
 func (pm *PrinterManager) ListPrinters() []*Printer {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
-	
+
 	printers := make([]*Printer, 0, len(pm.printers))
 	for _, p := range pm.printers {
 		printers = append(printers, p)
 	}
 	return printers
+}
+
+func (pm *PrinterManager) lockDevice(id int64) func() {
+	pm.mu.Lock()
+	lock := pm.deviceLocks[id]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		pm.deviceLocks[id] = lock
+	}
+	pm.mu.Unlock()
+
+	lock.Lock()
+	return lock.Unlock
 }
 
 func (pm *PrinterManager) connect(id int64) (net.Conn, error) {
@@ -219,35 +241,35 @@ func (pm *PrinterManager) connect(id int64) (net.Conn, error) {
 		pm.mu.RUnlock()
 		return nil, ErrPrinterNotFound
 	}
-	
+
 	if conn, exists := pm.connections[id]; exists && conn != nil {
 		pm.mu.RUnlock()
 		return conn, nil
 	}
 	pm.mu.RUnlock()
-	
+
 	address := fmt.Sprintf("%s:%d", p.IPAddress, p.Port)
 	timeout := pm.config.ConnectionTimeout
 	if timeout == 0 {
 		timeout = defaultReadWriteTimeout
 	}
-	
+
 	conn, err := net.DialTimeout("tcp", address, timeout)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrConnectionFailed, err)
 	}
-	
+
 	pm.mu.Lock()
 	pm.connections[id] = conn
 	pm.mu.Unlock()
-	
+
 	return conn, nil
 }
 
 func (pm *PrinterManager) disconnect(id int64) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-	
+
 	if conn, exists := pm.connections[id]; exists {
 		if conn != nil {
 			conn.Close()
@@ -262,13 +284,16 @@ func (pm *PrinterManager) reconnect(id int64) (net.Conn, error) {
 }
 
 func (pm *PrinterManager) CheckStatus(id int64) (*PrinterStatus, error) {
+	unlock := pm.lockDevice(id)
+	defer unlock()
+
 	pm.mu.RLock()
 	if _, exists := pm.printers[id]; !exists {
 		pm.mu.RUnlock()
 		return nil, ErrPrinterNotFound
 	}
 	pm.mu.RUnlock()
-	
+
 	conn, err := pm.connect(id)
 	if err != nil {
 		status := &PrinterStatus{
@@ -279,15 +304,15 @@ func (pm *PrinterManager) CheckStatus(id int64) (*PrinterStatus, error) {
 		pm.updatePrinterStatus(id, "offline")
 		return status, err
 	}
-	
+
 	timeout := pm.config.ConnectionTimeout
 	if timeout == 0 {
 		timeout = defaultReadWriteTimeout
 	}
-	
+
 	deadline := time.Now().Add(timeout)
 	_ = conn.SetDeadline(deadline)
-	
+
 	_, err = conn.Write([]byte(statusCommand))
 	if err != nil {
 		conn, err = pm.reconnect(id)
@@ -313,13 +338,28 @@ func (pm *PrinterManager) CheckStatus(id int64) (*PrinterStatus, error) {
 			return status, err
 		}
 	}
-	
+
 	response := make([]byte, statusResponseLength)
 	totalRead := 0
+	shortWait := false
 	for totalRead < statusResponseLength {
 		n, err := conn.Read(response[totalRead:])
+		if n > 0 {
+			totalRead += n
+		}
+		if totalRead >= statusResponseLength {
+			break
+		}
+		// This TA220 returns one immediate-status byte and holds the socket open.
+		if totalRead == 1 && !shortWait && err == nil {
+			shortWait = true
+			_ = conn.SetDeadline(time.Now().Add(200 * time.Millisecond))
+			continue
+		}
 		if err != nil {
-			if errors.Is(err, io.EOF) || errors.Is(err, context.DeadlineExceeded) {
+			var netErr net.Error
+			timedOut := errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &netErr) && netErr.Timeout())
+			if errors.Is(err, io.EOF) || timedOut {
 				break
 			}
 			pm.disconnect(id)
@@ -331,9 +371,15 @@ func (pm *PrinterManager) CheckStatus(id int64) (*PrinterStatus, error) {
 			pm.updatePrinterStatus(id, "offline")
 			return status, fmt.Errorf("%w: %v", ErrConnectionFailed, err)
 		}
-		totalRead += n
 	}
-	
+
+	if totalRead == 1 {
+		status := tscImmediateStatus(response[0])
+		newStatus := pm.determineStatusString(status)
+		pm.updatePrinterStatus(id, newStatus)
+		return status, nil
+	}
+
 	if totalRead < statusResponseLength {
 		status := &PrinterStatus{
 			IsOnline:    false,
@@ -343,47 +389,83 @@ func (pm *PrinterManager) CheckStatus(id int64) (*PrinterStatus, error) {
 		pm.updatePrinterStatus(id, "error")
 		return status, ErrInvalidStatus
 	}
-	
+
 	status := pm.parseStatus(response)
 	status.IsOnline = true
 	status.LastChecked = time.Now()
 	status.CanPrint = status.PrinterState == "normal" || status.PrinterState == "standby" || status.PrinterState == "idle"
-	
+
 	newStatus := pm.determineStatusString(status)
 	pm.updatePrinterStatus(id, newStatus)
-	
+
 	return status, nil
+}
+
+func tscImmediateStatus(b byte) *PrinterStatus {
+	status := &PrinterStatus{
+		IsOnline:    true,
+		Warning:     "none",
+		Error:       "none",
+		MediaError:  "none",
+		CanPrint:    false,
+		LastChecked: time.Now(),
+	}
+	switch b {
+	case 0x00:
+		status.PrinterState = "normal"
+		status.CanPrint = true
+	case 0x01:
+		status.PrinterState = "head_open"
+		status.MediaError = "head_open"
+	case 0x02:
+		status.PrinterState = "error"
+		status.Error = "paper_jam"
+	case 0x04:
+		status.PrinterState = "error"
+		status.MediaError = "paper_empty"
+	case 0x08:
+		status.PrinterState = "error"
+		status.MediaError = "ribbon_empty"
+	case 0x10:
+		status.PrinterState = "paused"
+	case 0x20:
+		status.PrinterState = "feeding"
+	default:
+		status.PrinterState = "error"
+		status.Error = fmt.Sprintf("tsc_status_0x%02x", b)
+	}
+	return status
 }
 
 func (pm *PrinterManager) parseStatus(response []byte) *PrinterStatus {
 	status := &PrinterStatus{
 		RawStatus: [4]byte{response[0], response[1], response[2], response[3]},
 	}
-	
+
 	if state, ok := printerStateMap[response[0]]; ok {
 		status.PrinterState = state
 	} else {
 		status.PrinterState = "unknown"
 	}
-	
+
 	if warning, ok := warningMap[response[1]]; ok {
 		status.Warning = warning
 	} else {
 		status.Warning = "unknown"
 	}
-	
+
 	if err, ok := errorMap[response[2]]; ok {
 		status.Error = err
 	} else {
 		status.Error = "unknown"
 	}
-	
+
 	if mediaErr, ok := mediaErrorMap[response[3]]; ok {
 		status.MediaError = mediaErr
 	} else {
 		status.MediaError = "unknown"
 	}
-	
+
 	return status
 }
 
@@ -391,42 +473,42 @@ func (pm *PrinterManager) determineStatusString(status *PrinterStatus) string {
 	if !status.IsOnline {
 		return "offline"
 	}
-	
+
 	if status.PrinterState == "error" || status.Error != "none" {
 		return "error"
 	}
-	
+
 	if status.PrinterState == "paused" {
 		return "paused"
 	}
-	
+
 	if status.MediaError != "none" {
 		return "error"
 	}
-	
+
 	if status.PrinterState == "feeding" {
 		return "busy"
 	}
-	
+
 	return "online"
 }
 
 func (pm *PrinterManager) updatePrinterStatus(id int64, status string) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-	
+
 	p, exists := pm.printers[id]
 	if !exists {
 		return
 	}
-	
+
 	oldStatus := p.Status
 	p.Status = status
 	now := time.Now()
 	p.LastSeenAt = &now
-	
+
 	_, _ = pm.db.Exec(db.UpdatePrinterStatus, status, id)
-	
+
 	if oldStatus != status && pm.webhookSender != nil {
 		go pm.webhookSender.SendPrinterStatusChange(id, p.Name, oldStatus, status, nil)
 	}
@@ -439,7 +521,7 @@ func (pm *PrinterManager) CheckAllStatuses() {
 		ids = append(ids, id)
 	}
 	pm.mu.RUnlock()
-	
+
 	for _, id := range ids {
 		_, _ = pm.CheckStatus(id)
 	}
@@ -447,17 +529,17 @@ func (pm *PrinterManager) CheckAllStatuses() {
 
 func (pm *PrinterManager) healthCheckLoop() {
 	defer pm.wg.Done()
-	
+
 	interval := pm.config.HealthCheckInterval
 	if interval == 0 {
 		interval = 30 * time.Second
 	}
-	
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	
+
 	pm.CheckAllStatuses()
-	
+
 	for {
 		select {
 		case <-pm.stopCh:
@@ -469,32 +551,44 @@ func (pm *PrinterManager) healthCheckLoop() {
 }
 
 func (pm *PrinterManager) SendCommand(id int64, tspl string) error {
+	unlock := pm.lockDevice(id)
+	defer unlock()
+
 	pm.mu.RLock()
 	if _, exists := pm.printers[id]; !exists {
 		pm.mu.RUnlock()
 		return ErrPrinterNotFound
 	}
 	pm.mu.RUnlock()
-	
+
 	conn, err := pm.connect(id)
 	if err != nil {
 		return ErrPrinterOffline
 	}
-	
+
 	timeout := pm.config.ConnectionTimeout
 	if timeout == 0 {
 		timeout = defaultReadWriteTimeout
 	}
-	
 	_ = conn.SetDeadline(time.Now().Add(timeout))
-	
-	_, err = conn.Write([]byte(tspl))
-	if err != nil {
-		_ = conn.Close()
-		pm.disconnect(id)
-		return fmt.Errorf("%w: %v", ErrConnectionFailed, err)
+
+	payload := []byte(tspl)
+	written := 0
+	for written < len(payload) {
+		n, writeErr := conn.Write(payload[written:])
+		if n > 0 {
+			written += n
+		}
+		if writeErr != nil {
+			_ = conn.Close()
+			pm.disconnect(id)
+			if written > 0 {
+				return fmt.Errorf("%w after %d bytes: %v", ErrPrintOutcomeUnknown, written, writeErr)
+			}
+			return fmt.Errorf("%w: %v", ErrConnectionFailed, writeErr)
+		}
 	}
-	
+
 	return nil
 }
 
@@ -503,88 +597,88 @@ func (pm *PrinterManager) Print(id int64, tspl string, copies int) error {
 	if err != nil {
 		return err
 	}
-	
+
 	if !status.IsOnline {
 		return ErrPrinterOffline
 	}
-	
+
 	if !status.CanPrint {
 		return ErrPrinterCannotPrint
 	}
-	
+
 	fullTSPL := tspl
 	if copies > 1 {
 		for i := 1; i < copies; i++ {
 			fullTSPL += "\r\n" + tspl
 		}
 	}
-	
+
 	err = pm.SendCommand(id, fullTSPL)
 	if err != nil {
 		return err
 	}
-	
+
 	pm.mu.Lock()
 	if p, exists := pm.printers[id]; exists {
 		p.TotalPrints += int64(copies)
 	}
 	pm.mu.Unlock()
-	
+
 	_, _ = pm.db.Exec(db.IncrementPrinterPrints, copies, id)
-	
+
 	return nil
 }
 
 func (pm *PrinterManager) PausePrinter(id int64) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-	
+
 	p, exists := pm.printers[id]
 	if !exists {
 		return ErrPrinterNotFound
 	}
-	
+
 	oldStatus := p.Status
 	p.Status = "paused"
-	
+
 	_, _ = pm.db.Exec(db.UpdatePrinterStatus, "paused", id)
-	
+
 	if oldStatus != "paused" && pm.webhookSender != nil {
 		go pm.webhookSender.SendPrinterStatusChange(id, p.Name, oldStatus, "paused", nil)
 	}
-	
+
 	return nil
 }
 
 func (pm *PrinterManager) ResumePrinter(id int64) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-	
+
 	p, exists := pm.printers[id]
 	if !exists {
 		return ErrPrinterNotFound
 	}
-	
+
 	oldStatus := p.Status
 	p.Status = "online"
-	
+
 	_, _ = pm.db.Exec(db.UpdatePrinterStatus, "online", id)
-	
+
 	if oldStatus != "online" && pm.webhookSender != nil {
 		go pm.webhookSender.SendPrinterStatusChange(id, p.Name, oldStatus, "online", nil)
 	}
-	
+
 	return nil
 }
 
 func (pm *PrinterManager) UpdatePrinter(p *Printer) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-	
+
 	if _, exists := pm.printers[p.ID]; !exists {
 		return ErrPrinterNotFound
 	}
-	
+
 	_, err := pm.db.Exec(db.UpdatePrinter,
 		p.Name, p.IPAddress, p.Port, p.DPI,
 		p.LabelWidthMM, p.LabelHeightMM, p.GapMM, p.ID,
@@ -592,29 +686,19 @@ func (pm *PrinterManager) UpdatePrinter(p *Printer) error {
 	if err != nil {
 		return fmt.Errorf("failed to update printer: %w", err)
 	}
-	
+
 	pm.printers[p.ID] = p
-	
+
 	if conn, exists := pm.connections[p.ID]; exists && conn != nil {
 		conn.Close()
 		delete(pm.connections, p.ID)
 	}
-	
+
 	return nil
 }
 
 func (pm *PrinterManager) GetConnection(id int64) (net.Conn, error) {
 	return pm.connect(id)
-}
-
-func (pm *PrinterManager) IncrementPrintCount(id int64, count int) error {
-	ctx := context.Background()
-	for i := 0; i < count; i++ {
-		if err := db.Printers.IncrementPrintCount(ctx, id); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (pm *PrinterManager) CloseConnection(id int64) {

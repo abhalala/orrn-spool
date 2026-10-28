@@ -331,7 +331,7 @@ func (o *JobOperations) ListJobs(ctx context.Context, filter JobFilter) ([]*Prin
 		orderDir = filter.OrderDir
 	}
 
-	query := "SELECT "+jobColumns+" FROM print_jobs"
+	query := "SELECT " + jobColumns + " FROM print_jobs"
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}

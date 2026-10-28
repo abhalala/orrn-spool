@@ -15,8 +15,8 @@ import (
 )
 
 type AIHandler struct {
-	geminiClient *ai.GeminiClient
-	db           *sql.DB
+	geminiClient  *ai.GeminiClient
+	db            *sql.DB
 	encryptionKey []byte
 }
 
@@ -34,12 +34,12 @@ type GenerateTemplateResponse struct {
 }
 
 type GenerateTemplateSchema struct {
-	Name      string                          `json:"name"`
-	WidthMM   float64                         `json:"width_mm"`
-	HeightMM  float64                         `json:"height_mm"`
-	GapMM     float64                         `json:"gap_mm"`
-	DPI       int                             `json:"dpi"`
-	Elements  []map[string]interface{}        `json:"elements"`
+	Name      string                         `json:"name"`
+	WidthMM   float64                        `json:"width_mm"`
+	HeightMM  float64                        `json:"height_mm"`
+	GapMM     float64                        `json:"gap_mm"`
+	DPI       int                            `json:"dpi"`
+	Elements  []map[string]interface{}       `json:"elements"`
 	Variables map[string]VariableDefResponse `json:"variables"`
 }
 
@@ -65,8 +65,8 @@ type AIConfigResponse struct {
 
 func NewAIHandler(geminiClient *ai.GeminiClient, database *sql.DB, encryptionKey []byte) *AIHandler {
 	return &AIHandler{
-		geminiClient: geminiClient,
-		db:           database,
+		geminiClient:  geminiClient,
+		db:            database,
 		encryptionKey: encryptionKey,
 	}
 }

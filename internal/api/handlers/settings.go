@@ -7,17 +7,17 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"golang.org/x/crypto/bcrypt"
 	"github.com/orrn/spool/internal/config"
 	"github.com/orrn/spool/internal/db"
+	"golang.org/x/crypto/bcrypt"
 )
 
 const (
-	settingsKeyPassword     = "admin_password"
-	settingsKeyArchiveDays  = "archive_days"
+	settingsKeyPassword       = "admin_password"
+	settingsKeyArchiveDays    = "archive_days"
 	settingsKeyArchiveEnabled = "archive_enabled"
-	settingsKeyAIEnabled    = "ai_enabled"
-	settingsKeyAIModel      = "ai_model"
+	settingsKeyAIEnabled      = "ai_enabled"
+	settingsKeyAIModel        = "ai_model"
 )
 
 type SettingsHandler struct {

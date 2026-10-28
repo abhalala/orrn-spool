@@ -17,9 +17,10 @@ type LabelPage struct {
 }
 
 type LabelDocument struct {
-	Version  int            `json:"version"`
-	Page     LabelPage      `json:"page"`
-	Elements []LabelElement `json:"elements"`
+	Version   int                    `json:"version"`
+	Page      LabelPage              `json:"page"`
+	Elements  []LabelElement         `json:"elements"`
+	Variables map[string]VariableDef `json:"variables,omitempty"`
 }
 
 type LabelPrinterProfile struct {
@@ -84,7 +85,76 @@ func ParseLabelDocument(raw []byte) (LabelDocument, error) {
 	if document.Page.SpeedInSec == 0 {
 		document.Page.SpeedInSec = 5
 	}
+	for index, element := range document.Elements {
+		document.Elements[index] = normalizeLegacyLabelElement(element, document.Page.DPI, index)
+	}
 	return document, nil
+}
+
+func normalizeLegacyLabelElement(element LabelElement, dpi, index int) LabelElement {
+	if element.ID == "" {
+		element.ID = fmt.Sprintf("element-%d", index)
+	}
+	if element.Xmm == 0 && element.X != 0 {
+		element.Xmm = float64(element.X) * 25.4 / float64(dpi)
+	}
+	if element.Ymm == 0 && element.Y != 0 {
+		element.Ymm = float64(element.Y) * 25.4 / float64(dpi)
+	}
+	if element.Type == "text" {
+		if element.Font == "" || element.Font == "3" {
+			element.Font = "Sans Serif"
+		}
+		if element.FontSizeMM == 0 {
+			element.FontSizeMM = 3
+		}
+	}
+	if element.Type == "barcode" {
+		if element.HeightMM == 0 && element.Height > 0 {
+			element.HeightMM = float64(element.Height) * 25.4 / float64(dpi)
+		}
+		if element.QuietZoneMM == 0 {
+			element.QuietZoneMM = 2
+		}
+		if !element.HumanReadable {
+			element.HumanReadable = true
+		}
+	}
+	if element.Type == "qrcode" {
+		if element.CellMM == 0 && element.CellWidth > 0 {
+			element.CellMM = float64(element.CellWidth) * 25.4 / float64(dpi)
+		}
+		if element.Model == 0 {
+			element.Model = 2
+		}
+		if element.Mask == "" {
+			element.Mask = "auto"
+		}
+		if element.Mode == "" {
+			element.Mode = "auto"
+		}
+		if element.QuietZoneMM == 0 {
+			element.QuietZoneMM = 2
+		}
+	}
+	if element.Type == "datamatrix" {
+		if element.WidthMM == 0 && element.Width > 0 {
+			element.WidthMM = float64(element.Width) * 25.4 / float64(dpi)
+		}
+		if element.HeightMM == 0 && element.Height > 0 {
+			element.HeightMM = float64(element.Height) * 25.4 / float64(dpi)
+		}
+		if element.ModuleMM == 0 && element.ModuleSize > 0 {
+			element.ModuleMM = float64(element.ModuleSize) * 25.4 / float64(dpi)
+		}
+		if element.ECC == 0 {
+			element.ECC = 200
+		}
+		if element.QuietZoneMM == 0 {
+			element.QuietZoneMM = 2
+		}
+	}
+	return element
 }
 
 func ValidateLabelDocument(document LabelDocument, profile LabelPrinterProfile) []LabelIssue {

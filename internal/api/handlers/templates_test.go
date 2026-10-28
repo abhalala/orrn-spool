@@ -117,7 +117,7 @@ func TestORRNTemplateSchemaRoundTrip(t *testing.T) {
 		t.Fatalf("editor lost variable definitions: %+v", editor.Variables)
 	}
 	preview, err := core.NewTSPL2Generator().Generate(&schema, map[string]string{"serial": "B-123"})
-	if err != nil || !strings.Contains(preview, "SIZE 60 mm, 40 mm") || !strings.Contains(preview, "Bundle B-123") {
+	if err != nil || !strings.Contains(preview, "SIZE 60.00 mm, 40.00 mm") || !strings.Contains(preview, "Bundle B-123") {
 		t.Fatalf("saved schema does not generate the intended label: %q, %v", preview, err)
 	}
 }

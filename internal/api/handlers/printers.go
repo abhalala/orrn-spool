@@ -733,13 +733,18 @@ func (h *PrinterHandler) generateTestLabel(p *db.Printer) string {
 	centerX := width / 2
 	centerY := height / 2
 
-	return fmt.Sprintf(`SIZE %d dot,%d dot
-GAP %.0f mm,0 mm
-DIRECTION 0
-CLS
-TEXT %d,%d,"3",0,2,2,"TEST LABEL"
-TEXT %d,%d,"3",0,1,1,"Printer: %s"
-BARCODE %d,%d,"128",60,0,2,2,2,"%s"
-PRINT 1
-`, width, height, p.GapMM, centerX-80, centerY-40, centerX-100, centerY+20, p.Name, centerX-100, centerY+60, p.IPAddress)
+	return fmt.Sprintf(
+		"SIZE %.2f mm, %.2f mm\r\nGAP %.2f mm, 0 mm\r\nDIRECTION 0\r\nCLS\r\nTEXT %d,%d,\"3\",0,2,2,\"TEST LABEL\"\r\nTEXT %d,%d,\"3\",0,1,1,\"Printer: %s\"\r\nBARCODE %d,%d,\"128\",60,1,0,2,2,\"%s\"\r\nPRINT 1,1\r\n",
+		p.LabelWidthMM,
+		p.LabelHeightMM,
+		p.GapMM,
+		centerX-80,
+		centerY-40,
+		centerX-100,
+		centerY+20,
+		p.Name,
+		centerX-100,
+		centerY+60,
+		p.IPAddress,
+	)
 }

@@ -17,9 +17,9 @@ import (
 )
 
 const (
-	cookieName         = "spool_auth"
-	tokenDuration      = 24 * time.Hour
-	settingsKeyPassword = "admin_password"
+	cookieName           = "spool_auth"
+	tokenDuration        = 24 * time.Hour
+	settingsKeyPassword  = "admin_password"
 	settingsKeyJWTSecret = "jwt_secret"
 )
 

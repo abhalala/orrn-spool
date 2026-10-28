@@ -44,12 +44,12 @@ func (h *ArchiveHandler) ListArchives(c *gin.Context) {
 }
 
 type ArchiveInfoResponse struct {
-	Filename    string    `json:"filename"`
-	Size        int64     `json:"size"`
-	CreatedAt   time.Time `json:"created_at"`
-	JobCount    int       `json:"job_count"`
-	DateRange   string    `json:"date_range"`
-	HasPassphrase bool    `json:"has_passphrase"`
+	Filename      string    `json:"filename"`
+	Size          int64     `json:"size"`
+	CreatedAt     time.Time `json:"created_at"`
+	JobCount      int       `json:"job_count"`
+	DateRange     string    `json:"date_range"`
+	HasPassphrase bool      `json:"has_passphrase"`
 }
 
 func (h *ArchiveHandler) GetArchiveInfo(c *gin.Context) {
@@ -120,9 +120,9 @@ func (h *ArchiveHandler) DeleteArchive(c *gin.Context) {
 }
 
 type TriggerArchiveResponse struct {
-	Message   string `json:"message"`
-	Archived  int    `json:"archived,omitempty"`
-	Error     string `json:"error,omitempty"`
+	Message  string `json:"message"`
+	Archived int    `json:"archived,omitempty"`
+	Error    string `json:"error,omitempty"`
 }
 
 func (h *ArchiveHandler) TriggerArchive(c *gin.Context) {
@@ -189,7 +189,7 @@ func (h *ArchiveHandler) UpdateArchiveSettings(c *gin.Context) {
 	h.archiver.SetArchiveDays(req.ArchiveDays)
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":     "settings updated",
+		"message":      "settings updated",
 		"archive_days": req.ArchiveDays,
 	})
 }
@@ -217,9 +217,9 @@ func (h *ArchiveHandler) RestoreJob(c *gin.Context) {
 }
 
 type ArchiveStatsResponse struct {
-	TotalArchives   int   `json:"total_archives"`
-	TotalSize       int64 `json:"total_size_bytes"`
-	TotalJobsStored int   `json:"total_jobs_stored"`
+	TotalArchives   int    `json:"total_archives"`
+	TotalSize       int64  `json:"total_size_bytes"`
+	TotalJobsStored int    `json:"total_jobs_stored"`
 	OldestArchive   string `json:"oldest_archive,omitempty"`
 	NewestArchive   string `json:"newest_archive,omitempty"`
 }
@@ -262,9 +262,9 @@ func (h *ArchiveHandler) GetArchiveStats(c *gin.Context) {
 
 func (h *ArchiveHandler) DownloadArchivePath(c *gin.Context) {
 	filename := c.Param("filename")
-	
+
 	filePath := filepath.Join(h.archiver.GetArchivePath(), filename)
-	
+
 	info, err := os.Stat(filePath)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "archive not found"})

@@ -1,0 +1,55 @@
+{{ define "fallback.html" }}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ORRN Edge fallback</title>
+  <link rel="stylesheet" href="/assets/edge/app.css">
+  <script src="/assets/edge/fallback.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div><p class="eyebrow">Read-only plant fallback</p><h1>ORRN Edge</h1></div>
+    <div class="session-actions"><span id="session-user" class="muted"></span><button id="logout" type="button">Sign out</button></div>
+  </header>
+  <div class="offline-banner">Cached reads and local printing only. Stock, orders, packing and dispatch changes require ORRN online.</div>
+  <nav class="tabs" aria-label="Fallback sections">
+    <button class="tab active" data-panel="stock" type="button">Stock</button>
+    <button class="tab" data-panel="orders" type="button">Orders</button>
+    <button class="tab" data-panel="dies" type="button">Dies</button>
+    <button class="tab" data-panel="jobs" type="button">Local jobs</button>
+    <button class="tab" data-panel="print_status" type="button">Cloud print history</button>
+    <button class="tab" data-panel="printers" type="button">Printers</button>
+  </nav>
+  <main class="content">
+    <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+
+    <section id="panel-stock" class="panel cache-panel" data-section="stock">
+      <div class="section-heading"><div><p class="eyebrow">Cached cloud read</p><h2>Stock</h2></div><button class="refresh-section" type="button">Refresh</button></div>
+      <p class="cache-time" id="cache-stock"></p><div id="summary-stock" class="summary"></div><div id="records-stock" class="record-list"></div>
+    </section>
+    <section id="panel-orders" class="panel cache-panel" data-section="orders" hidden>
+      <div class="section-heading"><div><p class="eyebrow">Cached cloud read · prices excluded</p><h2>Orders</h2></div><button class="refresh-section" type="button">Refresh</button></div>
+      <p class="cache-time" id="cache-orders"></p><div id="records-orders" class="record-list"></div>
+    </section>
+    <section id="panel-dies" class="panel cache-panel" data-section="dies" hidden>
+      <div class="section-heading"><div><p class="eyebrow">Cached cloud read · file downloads excluded</p><h2>Dies</h2></div><button class="refresh-section" type="button">Refresh</button></div>
+      <p class="cache-time" id="cache-dies"></p><div id="records-dies" class="record-list"></div>
+    </section>
+    <section id="panel-print_status" class="panel cache-panel" data-section="print_status" hidden>
+      <div class="section-heading"><div><p class="eyebrow">Cached cloud history · not live local status</p><h2>Cloud print history</h2></div><button class="refresh-section" type="button">Refresh</button></div>
+      <p class="cache-time" id="cache-print_status"></p><div id="records-print_status" class="record-list"></div>
+    </section>
+
+    <section id="panel-jobs" class="panel" hidden>
+      <div class="section-heading"><div><p class="eyebrow">Authoritative on this node</p><h2>Local print jobs</h2></div><button id="refresh-jobs" type="button">Refresh</button></div>
+      <p class="muted">Reprinting sent or outcome-unknown jobs can produce another physical label.</p>
+      <div id="local-jobs" class="table-wrap"></div>
+    </section>
+    <section id="panel-printers" class="panel" hidden>
+      <div class="section-heading"><div><p class="eyebrow">Live worker reports</p><h2>Printer health</h2></div><button id="refresh-printers" type="button">Refresh</button></div>
+      <div id="printers-list" class="card-grid"></div>
+    </section>
+  </main>
+</body>
+</html>{{ end }}

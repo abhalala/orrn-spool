@@ -1,0 +1,59 @@
+{{ define "admin.html" }}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ORRN Edge administration</title>
+  <link rel="stylesheet" href="/assets/edge/app.css">
+  <script src="/assets/edge/admin.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div><p class="eyebrow">Loopback only</p><h1>ORRN Edge administration</h1></div>
+    <div class="session-actions"><span id="session-user" class="muted"></span><button id="logout" type="button">Sign out</button></div>
+  </header>
+  <nav class="tabs" aria-label="Administration sections">
+    <button class="tab active" data-panel="diagnostics" type="button">Diagnostics</button>
+    <button class="tab" data-panel="users" type="button">Fallback users</button>
+    <button class="tab" data-panel="config" type="button">Desired config</button>
+    <a class="tab" href="/fallback/">Open fallback UI</a>
+  </nav>
+  <main class="content">
+    <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+
+    <section id="panel-diagnostics" class="panel">
+      <div class="section-heading"><div><p class="eyebrow">Node health</p><h2>Diagnostics</h2></div><button id="refresh-diagnostics" type="button">Refresh</button></div>
+      <p class="notice">Cloud reachability is independent of local readiness. Cached reads and accepted local print jobs remain available during an internet outage.</p>
+      <div id="job-states" class="stat-grid"></div>
+      <h3>Cache freshness</h3>
+      <div id="diagnostic-cache" class="table-wrap"></div>
+      <h3>Recent local jobs</h3>
+      <div id="diagnostic-jobs" class="table-wrap"></div>
+    </section>
+
+    <section id="panel-users" class="panel" hidden>
+      <div class="section-heading"><div><p class="eyebrow">Site-local access</p><h2>Fallback users</h2></div></div>
+      <div class="two-column">
+        <form id="user-form" class="card">
+          <h3>Create or reset a user</h3>
+          <p class="muted">Viewer: cached reads. Printer: cached reads, reprints and test labels.</p>
+          <label for="new-username">Username</label>
+          <input id="new-username" name="username" autocomplete="off" required>
+          <label for="new-password">Password or PIN</label>
+          <input id="new-password" name="password" type="password" autocomplete="new-password" minlength="4" required>
+          <label for="new-role">Role</label>
+          <select id="new-role" name="role"><option value="viewer">Viewer</option><option value="printer">Printer</option></select>
+          <button class="primary" type="submit">Save user</button>
+        </form>
+        <div><h3>Existing users</h3><div id="users-list" class="table-wrap"></div></div>
+      </div>
+    </section>
+
+    <section id="panel-config" class="panel" hidden>
+      <div class="section-heading"><div><p class="eyebrow">Read only</p><h2>Desired configuration</h2></div><button id="refresh-config" type="button">Refresh</button></div>
+      <p id="config-version" class="notice"></p>
+      <div id="config-printers" class="table-wrap"></div>
+    </section>
+  </main>
+</body>
+</html>{{ end }}

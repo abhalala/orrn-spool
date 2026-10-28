@@ -1,0 +1,22 @@
+[Unit]
+Description=ORRN Edge Site Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=orrn-edge
+Group=orrn-edge
+WorkingDirectory=/var/lib/orrn-edge
+Environment=ORRN_EDGE_STATE_DIR=/var/lib/orrn-edge
+ExecStart=/usr/local/bin/orrn-edge run --state-dir /var/lib/orrn-edge --admin-addr 127.0.0.1:8081 --fallback-addr :8080
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/orrn-edge
+
+[Install]
+WantedBy=multi-user.target

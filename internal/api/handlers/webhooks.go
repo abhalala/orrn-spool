@@ -308,9 +308,9 @@ func (h *WebhookHandler) TestWebhook(c *gin.Context) {
 	}
 
 	testPayload := map[string]interface{}{
-		"test":      true,
-		"message":   "Test webhook from TSC Spool",
-		"timestamp": time.Now(),
+		"test":       true,
+		"message":    "Test webhook from TSC Spool",
+		"timestamp":  time.Now(),
 		"webhook_id": id,
 	}
 

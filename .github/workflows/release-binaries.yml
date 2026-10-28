@@ -1,10 +1,15 @@
-name: Release Binaries
+name: Release ORRN Edge Binaries
 
 on:
   push:
-    branches:
-      - main
+    tags:
+      - "v*.*.*"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Explicit semver release (e.g. 1.0.0)"
+        required: true
+        default: "1.0.0"
 
 permissions:
   contents: write
@@ -14,96 +19,28 @@ jobs:
   prep:
     runs-on: ubuntu-latest
     outputs:
+      version: ${{ steps.meta.outputs.version }}
       release_tag: ${{ steps.meta.outputs.release_tag }}
-      release_title: ${{ steps.meta.outputs.release_title }}
     steps:
       - id: meta
         run: |
-          echo "release_tag=main-${GITHUB_RUN_NUMBER}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-          echo "release_title=main ${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-
-  build:
-    needs: prep
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: linux-amd64
-            runs_on: ubuntu-latest
-            shell: bash
-            goos: linux
-            goarch: amd64
-            output: orrn-spool-linux-amd64
-            cc: ""
-          - platform: darwin-amd64
-            runs_on: macos-14
-            shell: bash
-            goos: darwin
-            goarch: amd64
-            output: orrn-spool-darwin-amd64
-            cc: ""
-          - platform: darwin-arm64
-            runs_on: macos-14
-            shell: bash
-            goos: darwin
-            goarch: arm64
-            output: orrn-spool-darwin-arm64
-            cc: ""
-          - platform: windows-amd64
-            runs_on: windows-latest
-            shell: pwsh
-            goos: windows
-            goarch: amd64
-            output: orrn-spool-windows-amd64.exe
-            cc: gcc
-    runs-on: ${{ matrix.runs_on }}
-    defaults:
-      run:
-        shell: ${{ matrix.shell }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - if: matrix.platform == 'windows-amd64'
-        uses: msys2/setup-msys2@v2
-        with:
-          install: mingw-w64-ucrt-x86_64-gcc
-      - if: matrix.platform == 'windows-amd64'
-        name: Add MinGW to PATH
-        shell: pwsh
-        run: echo "C:/msys64/ucrt64/bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-      - name: Download modules
-        run: go mod download
-      - if: matrix.platform != 'windows-amd64'
-        name: Build binary
-        env:
-          CGO_ENABLED: '1'
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CC: ${{ matrix.cc }}
-        run: |
-          mkdir -p dist
-          go build -ldflags "-w -s" -o "dist/${{ matrix.output }}" ./cmd/spool
-      - if: matrix.platform == 'windows-amd64'
-        name: Build binary (Windows)
-        shell: pwsh
-        env:
-          CGO_ENABLED: '1'
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CC: ${{ matrix.cc }}
-        run: |
-          New-Item -ItemType Directory -Force dist | Out-Null
-          go build -ldflags "-w -s" -o "dist/${{ matrix.output }}" ./cmd/spool
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.platform }}
-          path: dist/${{ matrix.output }}
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            ver="${GITHUB_REF_NAME#v}"
+          else
+            ver="${{ github.event.inputs.version || '1.0.0' }}"
+          fi
+          if [[ -z "$ver" || "$ver" == "dev" || ! "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Release version must match semver X.Y.Z" >&2
+            exit 1
+          fi
+          echo "version=${ver}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=v${ver}" >> "$GITHUB_OUTPUT"
 
   docker:
     needs: prep
     runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
@@ -113,46 +50,54 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      - uses: docker/build-push-action@v6
+      - id: build
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
+          build-args: |
+            VERSION=${{ needs.prep.outputs.version }}
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}:${{ needs.prep.outputs.release_tag }}
-            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository_owner }}/orrn-edge:${{ needs.prep.outputs.version }}
+
+  smoke:
+    needs: prep
+    strategy:
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Test Go runtime and execute native release artifact
+        shell: bash
+        run: |
+          go test ./...
+          bash scripts/release_test.sh "${{ needs.prep.outputs.version }}"
 
   release:
-    needs: [prep, build, docker]
+    needs: [prep, docker, smoke]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
-          name: linux-amd64
-          path: dist/linux-amd64
-      - uses: actions/download-artifact@v4
-        with:
-          name: darwin-amd64
-          path: dist/darwin-amd64
-      - uses: actions/download-artifact@v4
-        with:
-          name: darwin-arm64
-          path: dist/darwin-arm64
-      - uses: actions/download-artifact@v4
-        with:
-          name: windows-amd64
-          path: dist/windows-amd64
-      - name: Flatten artifacts
+          go-version-file: go.mod
+      - name: Build release artifacts and manifest
+        env:
+          OUT_DIR: dist
         run: |
-          mkdir -p release
-          find dist -maxdepth 2 -type f -exec cp {} release/ \;
-          cd release
-          for file in *; do
-            sha256sum "$file" > "$file.sha256"
-          done
-      - name: Create release
+          bash scripts/build-release.sh "${{ needs.prep.outputs.version }}"
+          bash scripts/release-manifest.sh "${{ needs.prep.outputs.version }}" "ghcr.io/${{ github.repository_owner }}/orrn-edge@${{ needs.docker.outputs.digest }}"
+      - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ needs.prep.outputs.release_tag }}" release/*             --repo "$GITHUB_REPOSITORY"             --title "${{ needs.prep.outputs.release_title }}"             --notes "Automated binary and Docker release for commit ${GITHUB_SHA}."
+          gh release create "${{ needs.prep.outputs.release_tag }}" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "ORRN Edge v${{ needs.prep.outputs.version }}" \
+            --notes "Immutable SHA-256 verified ORRN Edge release v${{ needs.prep.outputs.version }}"

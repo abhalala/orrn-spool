@@ -1,0 +1,26 @@
+{{ define "login.html" }}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ .Title }}</title>
+  <link rel="stylesheet" href="/assets/edge/app.css">
+  <script src="/assets/edge/login.js" defer></script>
+</head>
+<body class="login-body">
+  <main class="login-card">
+    <p class="eyebrow">Plant site console</p>
+    <h1>{{ .Title }}</h1>
+    <p class="muted">Sign in with an account local to this edge node.</p>
+    <form id="login-form" data-scope="{{ .Scope }}">
+      <label for="username">Username</label>
+      <input id="username" name="username" autocomplete="username" required {{ if eq .Scope "admin" }}value="admin"{{ end }}>
+      <label for="password">Password or PIN</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
+      <button type="submit" class="primary">Sign in</button>
+      <p id="login-message" class="form-message" role="alert" aria-live="polite"></p>
+    </form>
+    <p class="fine-print">Local credentials are never copied from ORRN cloud accounts.</p>
+  </main>
+</body>
+</html>{{ end }}

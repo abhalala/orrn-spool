@@ -386,7 +386,7 @@ func (h *JobHandler) ReprintJob(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":   "job reprinted",
+		"message":    "job reprinted",
 		"new_job_id": newJobID,
 	})
 }
@@ -606,12 +606,12 @@ func (h *JobHandler) LegacyPrintHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"job_id":      jobID,
-		"printer":     printer.Name,
-		"template":    template.Name,
-		"uid":         uid,
-		"status":      "queued",
-		"message":     "print job submitted",
+		"job_id":   jobID,
+		"printer":  printer.Name,
+		"template": template.Name,
+		"uid":      uid,
+		"status":   "queued",
+		"message":  "print job submitted",
 	})
 }
 

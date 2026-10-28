@@ -70,7 +70,7 @@ type GenerateResponse struct {
 }
 
 type GeminiAPIRequest struct {
-	Contents         []Content         `json:"contents"`
+	Contents         []Content        `json:"contents"`
 	GenerationConfig GenerationConfig `json:"generationConfig"`
 }
 
@@ -121,7 +121,7 @@ func (e *GeminiError) Error() string {
 
 func NewGeminiClient() *GeminiClient {
 	return &GeminiClient{
-		model:  "gemini-2.0-flash",
+		model:   "gemini-2.0-flash",
 		baseURL: "https://generativelanguage.googleapis.com/v1beta",
 		httpClient: &http.Client{
 			Timeout: 60 * time.Second,
@@ -336,17 +336,17 @@ func (c *GeminiClient) validateSchema(schema *core.LabelSchema) error {
 	}
 
 	validTypes := map[string]bool{
-		"text":      true,
-		"barcode":   true,
-		"qrcode":    true,
-		"pdf417":    true,
+		"text":       true,
+		"barcode":    true,
+		"qrcode":     true,
+		"pdf417":     true,
 		"datamatrix": true,
-		"box":       true,
-		"line":      true,
-		"circle":    true,
-		"ellipse":   true,
-		"block":     true,
-		"image":     true,
+		"box":        true,
+		"line":       true,
+		"circle":     true,
+		"ellipse":    true,
+		"block":      true,
+		"image":      true,
 	}
 
 	for i, elem := range schema.Elements {

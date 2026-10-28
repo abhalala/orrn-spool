@@ -155,9 +155,9 @@ func (h *WebUIHandler) getPrinterStatuses(c *gin.Context) []PrinterWithStatus {
 func (h *WebUIHandler) getRecentJobs(c *gin.Context) []JobSummary {
 	ctx := c.Request.Context()
 	filter := db.JobFilter{
-		Limit:   10,
-		Offset:  0,
-		OrderBy: "created_at",
+		Limit:    10,
+		Offset:   0,
+		OrderBy:  "created_at",
 		OrderDir: "DESC",
 	}
 

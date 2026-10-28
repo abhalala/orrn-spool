@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 type Archiver struct {
@@ -196,7 +196,7 @@ func (a *Archiver) getJobsForArchival(cutoff time.Time) ([]*archivedJob, error) 
 }
 
 func (a *Archiver) openOrCreateArchiveDB(path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite3", path)
+	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err
 	}
@@ -259,7 +259,7 @@ func (a *Archiver) encryptAndCleanup(archiveDBPath string) error {
 func (a *Archiver) encryptFile(inputPath, outputPath string) error {
 	cmd := exec.Command("age", "-a", "-p", "-o", outputPath, inputPath)
 	cmd.Stdin = bytes.NewReader([]byte(a.passphrase + "\n" + a.passphrase + "\n"))
-	
+
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("age encryption failed: %w, output: %s", err, string(output))
@@ -270,7 +270,7 @@ func (a *Archiver) encryptFile(inputPath, outputPath string) error {
 func (a *Archiver) decryptFile(inputPath, outputPath string) error {
 	cmd := exec.Command("age", "-d", "-o", outputPath, inputPath)
 	cmd.Stdin = bytes.NewReader([]byte(a.passphrase + "\n"))
-	
+
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("age decryption failed: %w, output: %s", err, string(output))
@@ -482,7 +482,7 @@ func (a *Archiver) GetArchivedJobsByOriginalID(ctx context.Context, originalID i
 	}
 
 	return &ArchiveJobInfo{
-		OriginalID: originalID,
+		OriginalID:  originalID,
 		ArchiveFile: archiveFile,
 		ArchivedAt:  archivedAt,
 	}, nil
@@ -523,7 +523,7 @@ func (a *Archiver) RestoreJobFromArchive(ctx context.Context, originalID int64) 
 		return fmt.Errorf("failed to decrypt archive: %w", err)
 	}
 
-	archiveDB, err := sql.Open("sqlite3", tmpPath)
+	archiveDB, err := sql.Open("sqlite", tmpPath)
 	if err != nil {
 		return fmt.Errorf("failed to open archive database: %w", err)
 	}

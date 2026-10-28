@@ -7,12 +7,12 @@ import (
 	"io/fs"
 	"os"
 	"path"
-"path/filepath"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 var (
@@ -24,6 +24,40 @@ var (
 
 type Config struct {
 	Path string
+}
+
+// Open opens a standalone SQLite connection configured with WAL mode,
+// NORMAL synchronous durability, a 5s busy timeout, and foreign keys enabled.
+func Open(dbPath string) (*sql.DB, error) {
+	if dbPath != ":memory:" && strings.TrimSpace(dbPath) != "" {
+		dbDir := filepath.Dir(dbPath)
+		if dbDir != "." && dbDir != "" {
+			if err := os.MkdirAll(dbDir, 0o755); err != nil {
+				return nil, fmt.Errorf("failed to create database directory %s: %w", dbDir, err)
+			}
+		}
+	}
+
+	conn, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return nil, err
+	}
+	conn.SetMaxOpenConns(1)
+	conn.SetMaxIdleConns(1)
+
+	pragmas := []string{
+		"PRAGMA journal_mode=WAL;",
+		"PRAGMA synchronous=NORMAL;",
+		"PRAGMA busy_timeout=5000;",
+		"PRAGMA foreign_keys=ON;",
+	}
+	for _, pragma := range pragmas {
+		if _, err := conn.Exec(pragma); err != nil {
+			_ = conn.Close()
+			return nil, fmt.Errorf("failed to apply %s: %w", pragma, err)
+		}
+	}
+	return conn, nil
 }
 
 func Init(cfg Config) error {
@@ -39,7 +73,7 @@ func Init(cfg Config) error {
 			}
 		}
 
-		db, initErr = sql.Open("sqlite3", cfg.Path)
+		db, initErr = sql.Open("sqlite", cfg.Path)
 		if initErr != nil {
 			return
 		}

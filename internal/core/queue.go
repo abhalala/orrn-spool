@@ -2,6 +2,7 @@ package core
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -36,9 +37,9 @@ type Job struct {
 	SubmittedBy   string
 	// JobKey is the client-provided exactly-once key; empty means none.
 	JobKey      string
-	CreatedAt     time.Time
-	StartedAt     *time.Time
-	CompletedAt   *time.Time
+	CreatedAt   time.Time
+	StartedAt   *time.Time
+	CompletedAt *time.Time
 }
 
 type QueueStats struct {
@@ -58,7 +59,6 @@ type QueueWebhookSender interface {
 type PrinterManagerInterface interface {
 	Print(printerID int64, tsplContent string, copies int) error
 	GetPrinter(printerID int64) (*Printer, error)
-	IncrementPrintCount(printerID int64, count int) error
 }
 
 type TSPL2GeneratorInterface interface {
@@ -139,12 +139,47 @@ func (q *Queue) Stop() {
 }
 
 func (q *Queue) recoverJobs() error {
-	_, err := q.db.Exec("UPDATE print_jobs SET status = 'pending' WHERE status = 'processing'")
+	rows, err := q.db.Query("SELECT id, COALESCE(printer_id, 0) FROM print_jobs WHERE status = 'processing'")
 	if err != nil {
-		return fmt.Errorf("failed to reset processing jobs: %w", err)
+		return fmt.Errorf("failed to query interrupted jobs: %w", err)
+	}
+	type interruptedJob struct {
+		id        int64
+		printerID int64
+	}
+	var interrupted []interruptedJob
+	for rows.Next() {
+		var job interruptedJob
+		if err := rows.Scan(&job.id, &job.printerID); err != nil {
+			rows.Close()
+			return fmt.Errorf("failed to scan interrupted job: %w", err)
+		}
+		interrupted = append(interrupted, job)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("failed to close interrupted job query: %w", err)
 	}
 
-	rows, err := q.db.Query(`
+	for _, job := range interrupted {
+		const reason = "process_interrupted_outcome_unknown"
+		result, err := q.db.Exec(`
+			UPDATE print_jobs
+			SET status = 'failed', error_message = ?, completed_at = CURRENT_TIMESTAMP
+			WHERE id = ? AND status = 'processing'
+		`, reason, job.id)
+		if err != nil {
+			return fmt.Errorf("failed to mark interrupted job %d: %w", job.id, err)
+		}
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("failed to confirm interrupted job %d recovery: %w", job.id, err)
+		}
+		if affected == 1 && q.webhookSender != nil {
+			q.webhookSender.SendJobEvent("job_failed", job.id, job.printerID, JobStatusFailed, reason)
+		}
+	}
+
+	rows, err = q.db.Query(`
 		SELECT id FROM print_jobs 
 		WHERE status = 'pending' 
 		ORDER BY priority DESC, created_at ASC
@@ -242,45 +277,62 @@ func (q *Queue) processJob(jobID int64) {
 	if job.TSPLContent == "" && q.tsplGenerator != nil {
 		tspl, err := q.tsplGenerator.GenerateFromTemplate(job.TemplateID, job.VariablesJSON)
 		if err != nil {
-			q.handleJobFailure(job, fmt.Sprintf("TSPL generation failed: %v", err))
+			q.handleJobFailure(job, fmt.Errorf("TSPL generation failed: %w", err))
 			return
 		}
 		job.TSPLContent = tspl
 		q.updateJobTSPL(jobID, tspl)
 	}
 
-	now := time.Now()
-	q.updateJobStatus(jobID, JobStatusProcessing, "", &now, nil)
+	claimed, err := q.claimJob(jobID)
+	if err != nil {
+		log.Printf("worker: failed to claim job %d: %v", jobID, err)
+		return
+	}
+	if !claimed {
+		return
+	}
 
 	if q.webhookSender != nil {
 		q.webhookSender.SendJobEvent("job_started", jobID, job.PrinterID, JobStatusProcessing, "")
 	}
 
 	if q.printerManager == nil {
-		q.handleJobFailure(job, "printer manager not configured")
+		q.handleJobFailure(job, errors.New("printer manager not configured"))
 		return
 	}
 
 	err = q.printerManager.Print(job.PrinterID, job.TSPLContent, job.Copies)
 	if err != nil {
-		q.handleJobFailure(job, err.Error())
+		q.handleJobFailure(job, err)
 		return
 	}
 
-	now = time.Now()
+	now := time.Now()
 	q.updateJobStatus(jobID, JobStatusCompleted, "", nil, &now)
 
 	if q.webhookSender != nil {
 		q.webhookSender.SendJobEvent("job_completed", jobID, job.PrinterID, JobStatusCompleted, "")
 	}
 
-	q.printerManager.IncrementPrintCount(job.PrinterID, job.Copies)
-
 	q.incrementPrintCounter(job.PrinterID, job.Copies)
 }
 
-func (q *Queue) handleJobFailure(job *Job, errMsg string) {
-	if job.RetryCount < job.MaxRetries {
+func (q *Queue) claimJob(jobID int64) (bool, error) {
+	result, err := q.db.Exec(`
+		UPDATE print_jobs
+		SET status = 'processing', error_message = '', started_at = ?, completed_at = NULL
+		WHERE id = ? AND status = 'pending'
+	`, time.Now(), jobID)
+	if err != nil {
+		return false, err
+	}
+	affected, err := result.RowsAffected()
+	return affected == 1, err
+}
+
+func (q *Queue) handleJobFailure(job *Job, jobErr error) {
+	if !errors.Is(jobErr, ErrPrintOutcomeUnknown) && job.RetryCount < job.MaxRetries {
 		delay := q.calculateBackoff(job.RetryCount)
 		time.AfterFunc(delay, func() {
 			q.retryJob(job.ID)
@@ -289,6 +341,7 @@ func (q *Queue) handleJobFailure(job *Job, errMsg string) {
 		return
 	}
 
+	errMsg := jobErr.Error()
 	now := time.Now()
 	q.updateJobStatus(job.ID, JobStatusFailed, errMsg, nil, &now)
 
@@ -311,7 +364,19 @@ func (q *Queue) calculateBackoff(retryCount int) time.Duration {
 }
 
 func (q *Queue) retryJob(jobID int64) {
-	q.updateJobStatus(jobID, JobStatusPending, "", nil, nil)
+	result, err := q.db.Exec(`
+		UPDATE print_jobs
+		SET status = 'pending', started_at = NULL, completed_at = NULL
+		WHERE id = ? AND status = 'processing'
+	`, jobID)
+	if err != nil {
+		log.Printf("failed to schedule job %d retry: %v", jobID, err)
+		return
+	}
+	affected, err := result.RowsAffected()
+	if err != nil || affected != 1 {
+		return
+	}
 	select {
 	case q.jobCh <- jobID:
 	default:
@@ -479,8 +544,8 @@ func (q *Queue) GetJob(id int64) (*Job, error) {
 		return nil, fmt.Errorf("failed to query job: %w", err)
 	}
 
+	job.MaxRetries = q.config.MaxRetries
 	if startedAt.Valid {
-		job.StartedAt = &startedAt.Time
 	}
 	if completedAt.Valid {
 		job.CompletedAt = &completedAt.Time

@@ -56,9 +56,9 @@ type PrintersConfig struct {
 }
 
 type QueueConfig struct {
-	MaxRetries   int           `yaml:"max_retries"`
-	RetryDelay   time.Duration `yaml:"retry_delay"`
-	WorkerCount  int           `yaml:"worker_count"`
+	MaxRetries  int           `yaml:"max_retries"`
+	RetryDelay  time.Duration `yaml:"retry_delay"`
+	WorkerCount int           `yaml:"worker_count"`
 }
 
 type LoggingConfig struct {
