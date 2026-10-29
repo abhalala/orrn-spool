@@ -27,6 +27,13 @@ func TestCapabilities(t *testing.T) {
 			return
 		}
 		_, _ = io.WriteString(conn, "MODEL: TA220\r\nMAC ADDRESS: A4-B1-C2-D3-E4-F5\r\nINSTALLEDFEATURES: RTC,CUTTER,USB\r\nMEDIA TYPE: GAP\r\nMEDIA WIDTH: 102.25 mm\r\nMEDIA HEIGHT: 76.2 mm\r\nGAP: 2.0 mm\r\nDPI: 203\r\nSPEED: 5\r\nDENSITY: 8\r\nCUTTER: OFF\r\n")
+		// Finish sending, then drain what the client still writes: closing with unread input makes
+		// Windows reset the connection and discard the response the client has not read yet.
+		if tcp, ok := conn.(*net.TCPConn); ok {
+			_ = tcp.CloseWrite()
+		}
+		_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		_, _ = io.Copy(io.Discard, conn)
 	}()
 	host, portText, _ := net.SplitHostPort(ln.Addr().String())
 	port, _ := strconv.Atoi(portText)
