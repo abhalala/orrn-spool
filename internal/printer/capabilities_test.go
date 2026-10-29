@@ -5,57 +5,95 @@ import (
 	"io"
 	"net"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 )
 
-func TestCapabilities(t *testing.T) {
+// startTA220 emulates the real TSC TA220 on port 9100: ~!T answers the model
+// with no line ending, ESC !? answers one status byte, and the printer never
+// closes the socket itself.
+func startTA220(t *testing.T, model string) Target {
+	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	t.Cleanup(func() { _ = ln.Close() })
 	go func() {
-		conn, err := ln.Accept()
-		if err != nil {
-			return
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				query := make([]byte, 3)
+				if _, err := io.ReadFull(c, query); err != nil {
+					return
+				}
+				switch string(query) {
+				case "~!T":
+					_, _ = io.WriteString(c, model)
+				case "\x1b!?":
+					_, _ = c.Write([]byte{0x00})
+				}
+				_, _ = io.Copy(io.Discard, c)
+			}(conn)
 		}
-		defer conn.Close()
-		command, _ := io.ReadAll(io.LimitReader(conn, 4))
-		if !strings.HasPrefix(string(command), "~!I") {
-			return
-		}
-		_, _ = io.WriteString(conn, "MODEL: TA220\r\nMAC ADDRESS: A4-B1-C2-D3-E4-F5\r\nINSTALLEDFEATURES: RTC,CUTTER,USB\r\nMEDIA TYPE: GAP\r\nMEDIA WIDTH: 102.25 mm\r\nMEDIA HEIGHT: 76.2 mm\r\nGAP: 2.0 mm\r\nDPI: 203\r\nSPEED: 5\r\nDENSITY: 8\r\nCUTTER: OFF\r\n")
-		// Finish sending, then drain what the client still writes: closing with unread input makes
-		// Windows reset the connection and discard the response the client has not read yet.
-		if tcp, ok := conn.(*net.TCPConn); ok {
-			_ = tcp.CloseWrite()
-		}
-		_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-		_, _ = io.Copy(io.Discard, conn)
 	}()
 	host, portText, _ := net.SplitHostPort(ln.Addr().String())
 	port, _ := strconv.Atoi(portText)
+	return Target{PrinterID: "packing", Host: host, Port: port}
+}
+
+func stubNeighbors(t *testing.T, neighbors ...Neighbor) {
+	t.Helper()
+	restore := SetNeighborLookupForTesting(func(context.Context) ([]Neighbor, error) { return neighbors, nil })
+	t.Cleanup(restore)
+}
+
+func TestCapabilities(t *testing.T) {
+	target := startTA220(t, "TA220")
+	stubNeighbors(t, Neighbor{IPAddress: "192.0.2.9", MACAddress: "001122334455"}, Neighbor{IPAddress: target.Host, MACAddress: "A4-B1-C2-D3-E4-F5"})
 	before := time.Now().UTC()
-	got, err := Discover(context.Background(), Target{PrinterID: "packing", Host: host, Port: port})
+	got, err := Discover(context.Background(), target)
+	elapsed := time.Since(before)
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
-	if got.MACAddress != "a4:b1:c2:d3:e4:f5" {
-		t.Fatalf("MAC = %q", got.MACAddress)
+	if got.Model != "TA220" || got.MACAddress != "a4:b1:c2:d3:e4:f5" {
+		t.Fatalf("identity = %+v", got)
 	}
-	if got.Host != host || got.Port != port || got.VerifiedAt.Before(before) {
+	if got.Host != target.Host || got.Port != target.Port || got.VerifiedAt.Before(before) {
 		t.Fatalf("endpoint evidence = %+v", got)
 	}
-	if got.MediaType != "gap" || got.MediaWidthMM != 102.25 || got.MediaHeightMM != 76.2 || got.GapMM != 2 || got.DPI != 203 || got.SpeedInSec != 5 || got.Density != 8 {
-		t.Fatalf("media evidence = %+v", got)
+	if got.MediaType != "" || got.DPI != 0 || got.Cutter != nil || len(got.Features) != 0 {
+		t.Fatalf("fabricated media evidence = %+v", got)
 	}
-	if got.Cutter == nil || *got.Cutter {
-		t.Fatalf("cutter = %v", got.Cutter)
+	if elapsed > 2*time.Second {
+		t.Fatalf("Discover took %v against a printer that never closes", elapsed)
 	}
-	if len(got.Features) != 3 || got.Features[1] != "cutter" {
-		t.Fatalf("features = %#v", got.Features)
+}
+
+func TestCapabilitiesWithoutNeighborEntry(t *testing.T) {
+	target := startTA220(t, "TA220")
+	stubNeighbors(t, Neighbor{IPAddress: "192.0.2.9", MACAddress: "001122334455"})
+	got, err := Discover(context.Background(), target)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if got.Model != "TA220" || got.MACAddress != "" || got.VerifiedAt.IsZero() {
+		t.Fatalf("capabilities = %+v", got)
+	}
+}
+
+func TestCapabilitiesNoModelIsError(t *testing.T) {
+	target := startTA220(t, "")
+	stubNeighbors(t, Neighbor{IPAddress: target.Host, MACAddress: "A4B1C2D3E4F5"})
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	if got, err := Discover(ctx, target); err == nil {
+		t.Fatalf("expected error, got %+v", got)
 	}
 }
 

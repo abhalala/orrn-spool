@@ -64,8 +64,10 @@ func newE2EPrinter(t *testing.T) *e2ePrinter {
 				defer conn.Close()
 				query := make([]byte, 3)
 				_, _ = io.ReadFull(conn, query)
-				if string(query) == "~!I" {
-					_, _ = io.WriteString(conn, "MODEL: TA220\r\nMAC: A4B1C2D3E4F5\r\nINSTALLEDFEATURES: RTC,CUTTER\r\n")
+				if string(query) == "~!T" {
+					// Like the real TA220: model without line ending, socket kept open.
+					_, _ = io.WriteString(conn, "TA220")
+					_, _ = io.Copy(io.Discard, conn)
 					return
 				}
 				_, _ = conn.Write([]byte{0x00})

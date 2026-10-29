@@ -33,6 +33,9 @@ type printerState struct {
 	capabilities *printer.Capabilities
 	lastSeen     *time.Time
 	lastErr      string
+	// discovery is the last logged discovery outcome ("ok", "partial",
+	// "failed") so each state change is logged once.
+	discovery string
 }
 
 type Worker struct {
@@ -192,7 +195,36 @@ func (w *Worker) drain(ctx context.Context, st *printerState) {
 				st.capabilities = &capabilities
 				w.mu.Unlock()
 			}
+			w.logDiscovery(st, capabilities, discoverErr)
 		}
+	}
+}
+
+// logDiscovery logs a discovery outcome only when it differs from the last
+// logged outcome for this printer, so a persistent failure is reported once.
+func (w *Worker) logDiscovery(st *printerState, capabilities printer.Capabilities, err error) {
+	state := "ok"
+	switch {
+	case err != nil:
+		state = "failed"
+	case capabilities.MACAddress == "":
+		state = "partial"
+	}
+	w.mu.Lock()
+	changed := st.discovery != state
+	st.discovery = state
+	id := st.target.PrinterID
+	w.mu.Unlock()
+	if !changed {
+		return
+	}
+	switch state {
+	case "failed":
+		log.Printf("worker: printer %s discovery failed: %v", id, err)
+	case "partial":
+		log.Printf("worker: printer %s discovered model %s but no MAC in the neighbor table; DHCP recovery disabled", id, capabilities.Model)
+	default:
+		log.Printf("worker: printer %s discovered model %s MAC %s", id, capabilities.Model, capabilities.MACAddress)
 	}
 }
 

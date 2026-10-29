@@ -2,6 +2,7 @@ package printer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -31,8 +32,28 @@ type Capabilities struct {
 	VerifiedAt    time.Time
 }
 
-// Discover performs the read-only TSPL ~!I information query. VerifiedAt is
-// set only after a syntactically valid response from the configured endpoint.
+// discoveryIdle is how long Discover keeps reading after the first reply byte.
+// The TA220 answers ~!T without a line ending and never closes the socket, so
+// the reply is complete once the printer goes quiet.
+const discoveryIdle = 750 * time.Millisecond
+
+// neighborLookup reads the OS neighbor (ARP) table; replaceable in tests.
+var neighborLookup = lookupPlatformNeighbors
+
+// SetNeighborLookupForTesting replaces the OS neighbor table lookup and returns
+// a function restoring the previous one. Tests only; not safe for concurrent use
+// with running discovery.
+func SetNeighborLookupForTesting(lookup func(context.Context) ([]Neighbor, error)) (restore func()) {
+	previous := neighborLookup
+	neighborLookup = lookup
+	return func() { neighborLookup = previous }
+}
+
+// Discover asks the printer for its model with the read-only TSPL ~!T query,
+// then resolves the MAC from the OS neighbor table for the endpoint's IPv4.
+// The TA220 does not report its MAC or media over port 9100, so MACAddress is
+// empty when the neighbor table has no entry, and media fields stay unset.
+// VerifiedAt is set only after the configured endpoint returned a model.
 func Discover(ctx context.Context, target Target) (Capabilities, error) {
 	cfg := target.Config()
 	if cfg.Timeout <= 0 {
@@ -44,28 +65,85 @@ func Discover(ctx context.Context, target Target) (Capabilities, error) {
 		return Capabilities{}, err
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(cfg.Timeout))
-	if _, err := io.WriteString(conn, "~!I\r\n"); err != nil {
+	deadline := time.Now().Add(cfg.Timeout)
+	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
+		deadline = ctxDeadline
+	}
+	stop := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Now()) })
+	defer stop()
+	_ = conn.SetDeadline(deadline)
+	if _, err := io.WriteString(conn, "~!T"); err != nil {
 		return Capabilities{}, err
 	}
-	raw, readErr := io.ReadAll(io.LimitReader(conn, maxCapabilityResponse))
-	if readErr != nil && len(raw) == 0 {
-		return Capabilities{}, readErr
-	}
-	capabilities, recognized := parseCapabilities(string(raw))
-	if recognized == 0 {
-		if readErr != nil {
-			return Capabilities{}, readErr
+	raw, readErr := readUntilIdle(conn, deadline)
+	model := strings.ToUpper(strings.Trim(string(raw), "\x00\r\n \t"))
+	if model == "" {
+		if ctx.Err() != nil {
+			return Capabilities{}, ctx.Err()
 		}
-		return Capabilities{}, fmt.Errorf("printer returned no recognizable capability fields")
+		if readErr != nil {
+			return Capabilities{}, fmt.Errorf("printer model query: %w", readErr)
+		}
+		return Capabilities{}, fmt.Errorf("printer returned no model")
 	}
-	capabilities.Host = target.Host
-	capabilities.Port = target.Port
+	capabilities := Capabilities{Model: model, Host: target.Host, Port: target.Port}
 	if capabilities.Port == 0 {
 		capabilities.Port = 9100
 	}
+	capabilities.MACAddress = neighborMAC(ctx, cfg.Host)
 	capabilities.VerifiedAt = time.Now().UTC()
 	return capabilities, nil
+}
+
+// readUntilIdle reads until discoveryIdle passes without data after the first
+// byte, the overall deadline expires, or the peer closes. It never waits for EOF.
+func readUntilIdle(conn net.Conn, deadline time.Time) ([]byte, error) {
+	var raw []byte
+	buf := make([]byte, 256)
+	for len(raw) < maxCapabilityResponse {
+		readDeadline := deadline
+		if len(raw) > 0 {
+			if idle := time.Now().Add(discoveryIdle); idle.Before(readDeadline) {
+				readDeadline = idle
+			}
+		}
+		_ = conn.SetReadDeadline(readDeadline)
+		n, err := conn.Read(buf)
+		raw = append(raw, buf[:n]...)
+		if err != nil {
+			var netErr net.Error
+			if len(raw) > 0 && (err == io.EOF || (errors.As(err, &netErr) && netErr.Timeout())) {
+				return raw, nil
+			}
+			return raw, err
+		}
+	}
+	return raw, nil
+}
+
+// neighborMAC returns the normalized MAC the OS neighbor table holds for host,
+// or "" when the host does not resolve to an IPv4 or has no entry.
+func neighborMAC(ctx context.Context, host string) string {
+	ip := net.ParseIP(host)
+	if ip == nil {
+		addrs, err := net.DefaultResolver.LookupIP(ctx, "ip4", host)
+		if err != nil || len(addrs) == 0 {
+			return ""
+		}
+		ip = addrs[0]
+	}
+	neighbors, err := neighborLookup(ctx)
+	if err != nil {
+		return ""
+	}
+	for _, neighbor := range neighbors {
+		if candidate := net.ParseIP(neighbor.IPAddress); candidate != nil && candidate.Equal(ip) {
+			if mac := NormalizeMAC(neighbor.MACAddress); mac != "" {
+				return mac
+			}
+		}
+	}
+	return ""
 }
 
 // NormalizeMAC accepts colon, hyphen, dot, or bare hexadecimal notation and
@@ -81,89 +159,4 @@ func NormalizeMAC(raw string) string {
 	}
 	hex = strings.ToLower(hex)
 	return strings.Join([]string{hex[0:2], hex[2:4], hex[4:6], hex[6:8], hex[8:10], hex[10:12]}, ":")
-}
-
-func parseCapabilities(raw string) (Capabilities, int) {
-	var out Capabilities
-	recognized := 0
-	for _, line := range strings.Split(strings.ReplaceAll(raw, "\x00", ""), "\n") {
-		key, value, ok := strings.Cut(strings.TrimSpace(line), ":")
-		if !ok {
-			key, value, ok = strings.Cut(strings.TrimSpace(line), "=")
-		}
-		if !ok {
-			continue
-		}
-		key = strings.NewReplacer(" ", "", "_", "", "-", "").Replace(strings.ToUpper(strings.TrimSpace(key)))
-		value = strings.TrimSpace(value)
-		switch key {
-		case "MODEL":
-			out.Model = strings.ToUpper(value)
-			recognized++
-		case "MAC", "MACADDRESS":
-			out.MACAddress = NormalizeMAC(value)
-			recognized++
-		case "INSTALLEDFEATURES":
-			for _, feature := range strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == ';' }) {
-				feature = strings.ToLower(strings.TrimSpace(feature))
-				if feature != "" {
-					out.Features = append(out.Features, feature)
-					if feature == "cutter" && out.Cutter == nil {
-						installed := true
-						out.Cutter = &installed
-					}
-				}
-			}
-			recognized++
-		case "MEDIA", "MEDIATYPE":
-			out.MediaType = strings.ToLower(strings.ReplaceAll(value, " ", "_"))
-			recognized++
-		case "MEDIAWIDTH", "LABELWIDTH":
-			out.MediaWidthMM = capabilityFloat(value, &recognized)
-		case "MEDIAHEIGHT", "LABELHEIGHT":
-			out.MediaHeightMM = capabilityFloat(value, &recognized)
-		case "GAP", "GAPMM":
-			out.GapMM = capabilityFloat(value, &recognized)
-		case "DPI", "RESOLUTION":
-			out.DPI = capabilityInt(value, &recognized)
-		case "SPEED", "SPEEDINSEC":
-			out.SpeedInSec = capabilityInt(value, &recognized)
-		case "DENSITY":
-			out.Density = capabilityInt(value, &recognized)
-		case "CUTTER":
-			if enabled, ok := capabilityBool(value); ok {
-				out.Cutter = &enabled
-				recognized++
-			}
-		}
-	}
-	return out, recognized
-}
-
-func capabilityFloat(raw string, recognized *int) float64 {
-	fields := strings.Fields(strings.ReplaceAll(raw, ",", " "))
-	if len(fields) == 0 {
-		return 0
-	}
-	value, err := strconv.ParseFloat(fields[0], 64)
-	if err != nil {
-		return 0
-	}
-	*recognized++
-	return value
-}
-
-func capabilityInt(raw string, recognized *int) int {
-	return int(capabilityFloat(raw, recognized))
-}
-
-func capabilityBool(raw string) (bool, bool) {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "1", "on", "yes", "true", "installed", "enabled":
-		return true, true
-	case "0", "off", "no", "false", "not installed", "disabled":
-		return false, true
-	default:
-		return false, false
-	}
 }

@@ -17,10 +17,9 @@ import (
 )
 
 type fakeTA220 struct {
-	ln           net.Listener
-	mu           sync.Mutex
-	received     bytes.Buffer
-	capabilities string
+	ln       net.Listener
+	mu       sync.Mutex
+	received bytes.Buffer
 }
 
 func startFakeTA220(t *testing.T) *fakeTA220 {
@@ -42,8 +41,11 @@ func startFakeTA220(t *testing.T) *fakeTA220 {
 				if _, err := io.ReadFull(c, query); err != nil {
 					return
 				}
-				if string(query) == "~!I" {
-					_, _ = io.WriteString(c, f.capabilities)
+				if string(query) == "~!T" {
+					// The real TA220 answers the model with no line ending and
+					// keeps the socket open.
+					_, _ = io.WriteString(c, "TA220")
+					_, _ = io.Copy(io.Discard, c)
 					return
 				}
 				_, _ = c.Write([]byte{0x00})
@@ -135,7 +137,10 @@ func TestWorkerSendsAcceptedJobsInOrderAndReportsOnline(t *testing.T) {
 
 func TestWorkerReportsOnlyVerifiedCapabilities(t *testing.T) {
 	fake := startFakeTA220(t)
-	fake.capabilities = "MAC: A4B1C2D3E4F5\r\nINSTALLEDFEATURES: CUTTER,RTC\r\nMEDIA TYPE: GAP\r\nDPI: 203\r\n"
+	host := fake.target("tsc-1").Host
+	t.Cleanup(printer.SetNeighborLookupForTesting(func(context.Context) ([]printer.Neighbor, error) {
+		return []printer.Neighbor{{IPAddress: host, MACAddress: "A4B1C2D3E4F5"}}, nil
+	}))
 	w := New(newJobStore(t), func() []printer.Target { return []printer.Target{fake.target("tsc-1")} })
 	w.Tick(context.Background())
 	reports := w.Reports()
@@ -143,7 +148,7 @@ func TestWorkerReportsOnlyVerifiedCapabilities(t *testing.T) {
 		t.Fatalf("missing capabilities: %+v", reports)
 	}
 	capabilities := reports[0].Capabilities
-	if capabilities.MACAddress != "a4:b1:c2:d3:e4:f5" || capabilities.VerifiedAt == "" || capabilities.DPI != 203 {
+	if capabilities.Model != "TA220" || capabilities.MACAddress != "a4:b1:c2:d3:e4:f5" || capabilities.VerifiedAt == "" || capabilities.DPI != 0 {
 		t.Fatalf("unexpected capabilities: %+v", capabilities)
 	}
 }

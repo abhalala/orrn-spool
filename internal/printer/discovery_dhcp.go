@@ -87,7 +87,7 @@ func parseNeighbors(raw string) []Neighbor {
 // RecoverEndpoint checks only addresses already present in the OS neighbor
 // table and only probes entries whose MAC matches the verified printer.
 func RecoverEndpoint(ctx context.Context, target Target) (EndpointEvidence, error) {
-	return recoverEndpoint(ctx, target, lookupPlatformNeighbors)
+	return recoverEndpoint(ctx, target, neighborLookup)
 }
 
 func recoverEndpoint(ctx context.Context, target Target, lookup func(context.Context) ([]Neighbor, error)) (EndpointEvidence, error) {
