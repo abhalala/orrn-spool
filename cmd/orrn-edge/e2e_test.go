@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -249,7 +250,11 @@ func e2eSnapshotChunk(section string) []byte {
 
 func TestLocalEdgeEndToEnd(t *testing.T) {
 	ctx := context.Background()
-	binary := filepath.Join(t.TempDir(), "orrn-edge")
+	name := "orrn-edge"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	binary := filepath.Join(t.TempDir(), name)
 	build := exec.Command("go", "build", "-trimpath", "-ldflags", "-X main.Version=1.0.0", "-o", binary, ".")
 	build.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if output, err := build.CombinedOutput(); err != nil {
