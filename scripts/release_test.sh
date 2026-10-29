@@ -45,7 +45,7 @@ case "$(uname -s)-$(uname -m)" in
   MINGW*-x86_64|MSYS*-x86_64|CYGWIN*-x86_64) native_artifact="orrn-edge-windows-amd64.exe" ;;
 esac
 if [[ -n "$native_artifact" ]]; then
-  reported_version="$("$tmpdir/$native_artifact" version)"
+  reported_version="$("$tmpdir/$native_artifact" version | tr -d '\r')"
   [[ "$reported_version" == "1.0.0" ]]
 fi
 
