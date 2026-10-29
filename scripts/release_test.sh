@@ -28,7 +28,12 @@ grep -q 'orrn-edge-linux-amd64' "$tmpdir/orrn-edge-release.json"
 grep -q 'orrn-edge-linux-arm64' "$tmpdir/orrn-edge-release.json"
 
 for artifact in orrn-edge-windows-amd64.exe orrn-edge-linux-amd64 orrn-edge-linux-arm64; do
-  [[ -s "$tmpdir/$artifact" && -x "$tmpdir/$artifact" ]]
+  [[ -s "$tmpdir/$artifact" ]]
+  # Git Bash on Windows reports -x only for .exe and scripts; the POSIX bit matters on Linux/macOS.
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) ;;
+    *) [[ -x "$tmpdir/$artifact" ]] ;;
+  esac
   if command -v sha256sum >/dev/null 2>&1; then
     (cd "$tmpdir" && sha256sum -c "$artifact.sha256")
   else
