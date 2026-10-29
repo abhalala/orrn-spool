@@ -3,10 +3,12 @@ package worker
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -150,6 +152,11 @@ func TestWorkerReportsOnlyVerifiedCapabilities(t *testing.T) {
 	capabilities := reports[0].Capabilities
 	if capabilities.Model != "TA220" || capabilities.MACAddress != "a4:b1:c2:d3:e4:f5" || capabilities.VerifiedAt == "" || capabilities.DPI != 0 {
 		t.Fatalf("unexpected capabilities: %+v", capabilities)
+	}
+	// The poll body ORRN validates: features must be an array even when the printer reports none.
+	wire, err := json.Marshal(capabilities)
+	if err != nil || !strings.Contains(string(wire), `"features":[]`) {
+		t.Fatalf("capabilities wire form = %s (%v)", wire, err)
 	}
 }
 

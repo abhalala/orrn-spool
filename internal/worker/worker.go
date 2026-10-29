@@ -337,7 +337,8 @@ func (w *Worker) Reports() []edgeclient.ReportedPrinter {
 				MACAddress:    capabilities.MACAddress,
 				Host:          capabilities.Host,
 				Port:          capabilities.Port,
-				Features:      append([]string(nil), capabilities.Features...),
+				// ORRN requires an array; a nil slice would marshal as null and reject the whole poll.
+				Features:      append([]string{}, capabilities.Features...),
 				MediaType:     capabilities.MediaType,
 				MediaWidthMM:  capabilities.MediaWidthMM,
 				MediaHeightMM: capabilities.MediaHeightMM,
