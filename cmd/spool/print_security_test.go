@@ -16,9 +16,10 @@ import (
 func seedLegacyTemplate(t *testing.T) string {
 	t.Helper()
 	ctx := context.Background()
-	name := "legacy-" + t.Name()
-	ip := fmt.Sprintf("10.77.0.%d", atomic.AddInt64(&printerSeq, 1))
-	p := &db.Printer{Name: "p-" + t.Name(), IPAddress: ip, Port: 9100, DPI: 203,
+	seq := atomic.AddInt64(&printerSeq, 1)
+	name := fmt.Sprintf("legacy-%s-%d", t.Name(), seq)
+	ip := fmt.Sprintf("10.77.%d.%d", seq/250, seq%250+1)
+	p := &db.Printer{Name: fmt.Sprintf("p-%s-%d", t.Name(), seq), IPAddress: ip, Port: 9100, DPI: 203,
 		LabelWidthMM: 50, LabelHeightMM: 30, GapMM: 2, Status: "online"}
 	if err := db.Printers.CreatePrinter(ctx, p); err != nil {
 		t.Fatal(err)
