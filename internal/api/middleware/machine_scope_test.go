@@ -74,6 +74,39 @@ func TestMachineTokenScope(t *testing.T) {
 	}
 }
 
+// A machine token that does not verify is 401 on every route, so the answer
+// does not tell an unauthenticated caller which routes are machine-scoped.
+func TestUnverifiedMachineTokenIs401Everywhere(t *testing.T) {
+	withSecret := &AuthMiddleware{secret: []byte("jwt-secret-for-tests")}
+	withSecret.SetORRNVerifier(NewORRNVerifier("node-secret"))
+	noSecret := &AuthMiddleware{secret: []byte("jwt-secret-for-tests")}
+
+	now := time.Now()
+	forged := map[string]string{
+		"malformed":    "Bearer v1:x:y",
+		"wrong secret": "Bearer " + SignORRN("not-the-node-secret", http.MethodPut, "/api/settings/password", []byte(`{}`), now),
+	}
+	routes := []struct{ method, path string }{
+		{http.MethodPut, "/api/settings/password"}, // admin only
+		{http.MethodGet, "/api/jobs"},              // admin only
+		{http.MethodGet, "/api/jobs/7"},            // machine scope
+	}
+	for mwName, a := range map[string]*AuthMiddleware{"secret configured": withSecret, "no secret": noSecret} {
+		r := scopeRouter(a)
+		for tokName, header := range forged {
+			for _, rt := range routes {
+				req := httptest.NewRequest(rt.method, rt.path, bytes.NewReader([]byte(`{}`)))
+				req.Header.Set("Authorization", header)
+				w := httptest.NewRecorder()
+				r.ServeHTTP(w, req)
+				if w.Code != http.StatusUnauthorized {
+					t.Errorf("%s, %s token, %s %s: %d, want 401", mwName, tokName, rt.method, rt.path, w.Code)
+				}
+			}
+		}
+	}
+}
+
 // A deployment can add its own machine routes without widening the defaults.
 func TestAllowMachineRoutes(t *testing.T) {
 	a := &AuthMiddleware{secret: []byte("jwt-secret-for-tests")}

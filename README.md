@@ -320,8 +320,9 @@ ORRN calls the spool with a signed machine token instead
 A machine token reaches only `DefaultMachineRoutes` in
 `internal/api/middleware/auth.go`, the routes ORRN's `SpoolClient` uses.
 Every other route, including settings, password, webhooks, AI, archives,
-printer edits and the job list, answers `403` to a machine token and needs the
-admin session. A deployment that mounts extra machine endpoints (the plant
+printer edits and the job list, answers `403` to a valid machine token and
+needs the admin session. A machine token that does not verify answers `401` on
+every route. A deployment that mounts extra machine endpoints (the plant
 filter) adds them with `AuthMiddleware.AllowMachineRoutes`.
 
 ### Printers API

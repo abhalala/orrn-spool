@@ -420,12 +420,14 @@ const setupTokenHelp = "Setup token missing or wrong. It is printed in the spool
 func (a *AuthMiddleware) RequireAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if machineToken, ok := orrnToken(c); ok {
-			if !a.machineMayCall(c) {
-				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "this route needs the spool admin session; ORRN machine tokens cannot call it"})
-				return
-			}
+			// Verify first, so a token that does not verify is 401 on every
+			// route and the answer does not reveal the machine scope.
 			if !a.authenticateORRN(c, machineToken) {
 				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+				return
+			}
+			if !a.machineMayCall(c) {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "this route needs the spool admin session; ORRN machine tokens cannot call it"})
 				return
 			}
 			c.Next()

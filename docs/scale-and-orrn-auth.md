@@ -141,7 +141,9 @@ reaches only `DefaultMachineRoutes` in `internal/api/middleware/auth.go`, which
 are the calls `SpoolClient` makes (printer list/add/status/test, template
 list/add/update, job create/get/cancel/retry, `/scale/reading`) plus the signed
 legacy `POST /print/:layout/:uid`. Settings, password, webhooks, AI, archives,
-printer edits and deletes, the job list and the pages answer 403. A deployment
+printer edits and deletes, the job list and the pages answer 403 to a token
+that verifies; a token that does not verify is 401 on every route, so the
+answer does not reveal the scope. A deployment
 with extra machine endpoints, such as the plant filter, adds them with
 `AuthMiddleware.AllowMachineRoutes`.
 
