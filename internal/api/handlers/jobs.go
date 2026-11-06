@@ -211,6 +211,12 @@ func (h *JobHandler) ListJobs(c *gin.Context) {
 	if query.Limit > 100 {
 		query.Limit = 100
 	}
+	if _, err := db.JobOrderClause(query.SortBy, query.SortDir); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "invalid sort: sort_by must be a job column name such as created_at or id, and sort_dir must be asc or desc",
+		})
+		return
+	}
 
 	filter := db.JobFilter{
 		PrinterID: query.PrinterID,

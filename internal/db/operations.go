@@ -322,20 +322,16 @@ func (o *JobOperations) ListJobs(ctx context.Context, filter JobFilter) ([]*Prin
 		args = append(args, filter.ToDate)
 	}
 
-	orderBy := "created_at"
-	if filter.OrderBy != "" {
-		orderBy = filter.OrderBy
-	}
-	orderDir := "DESC"
-	if filter.OrderDir != "" {
-		orderDir = filter.OrderDir
+	order, err := JobOrderClause(filter.OrderBy, filter.OrderDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list jobs: %w", err)
 	}
 
 	query := "SELECT " + jobColumns + " FROM print_jobs"
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
-	query += fmt.Sprintf(" ORDER BY %s %s", orderBy, orderDir)
+	query += " ORDER BY " + order
 
 	limit := 100
 	if filter.Limit > 0 {
