@@ -83,7 +83,8 @@ The weight reported is the newest frame, which is what the indicator displays.
 
 ## 4. HTTP endpoints
 
-All behind the same auth as `/api/*` (spool JWT or ORRN machine token, section 5).
+All need the spool JWT. An ORRN machine token (section 5) may call only
+`/scale/reading`; `/scale/status` and `/scale/stream` answer it with 403.
 None of them touches the indicator.
 
 `GET /scale/reading`, always 200, `Cache-Control: no-store`:
@@ -134,6 +135,15 @@ sig      = hex( HMAC-SHA256( secret, METHOD + "|" + path + "|" + ts + "|" + body
 path     = request path plus "?query" when there is one
 bodyHash = hex( SHA-256(body) ), or "" when the request has no body
 ```
+
+Scope (2026-11-05 security fix): a machine token is not an admin login. It
+reaches only `DefaultMachineRoutes` in `internal/api/middleware/auth.go`, which
+are the calls `SpoolClient` makes (printer list/add/status/test, template
+list/add/update, job create/get/cancel/retry, `/scale/reading`) plus the signed
+legacy `POST /print/:layout/:uid`. Settings, password, webhooks, AI, archives,
+printer edits and deletes, the job list and the pages answer 403. A deployment
+with extra machine endpoints, such as the plant filter, adds them with
+`AuthMiddleware.AllowMachineRoutes`.
 
 Spool-side checks: the secret is `orrn.shared_secret` / `ORRN_SPOOL_SHARED_SECRET`
 (empty = machine auth off, JWT only); clock window **±5 min**; signature compared
