@@ -67,3 +67,7 @@ __debug_bin*
 
 # Air (hot reload)
 .air.toml
+
+# Wrangler state for the agni relay Worker (account cache, local dev data)
+cloudflare/.wrangler/
+cloudflare/node_modules/

@@ -23,6 +23,7 @@ import (
 type uiServer struct {
 	r      *gin.Engine
 	fix    *keyFixture
+	auth   *middleware.AuthMiddleware
 	cookie *http.Cookie
 }
 
@@ -52,7 +53,7 @@ func newUIServer(t *testing.T) *uiServer {
 	api.Use(ui.HTMXFragments())
 	NewJobHandler(db.GetDB(), f.queue, core.NewTSPL2Generator()).RegisterRoutes(api)
 
-	s := &uiServer{r: r, fix: f}
+	s := &uiServer{r: r, fix: f, auth: auth}
 	s.signIn(t)
 	return s
 }
@@ -60,7 +61,7 @@ func newUIServer(t *testing.T) *uiServer {
 // signIn sets the first password through the login form, as a person would.
 func (s *uiServer) signIn(t *testing.T) {
 	t.Helper()
-	form := url.Values{"password": {"secret123"}, "confirm_password": {"secret123"}}
+	form := url.Values{"password": {"secret123"}, "confirm_password": {"secret123"}, "setup_token": {s.auth.SetupToken()}}
 	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()

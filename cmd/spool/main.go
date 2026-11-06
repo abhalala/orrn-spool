@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -70,6 +71,9 @@ func main() {
 	authMiddleware, err := apimw.NewAuthMiddleware(database)
 	if err != nil {
 		log.Fatalf("init auth middleware: %v", err)
+	}
+	if token := authMiddleware.SetupToken(); token != "" {
+		announceSetupToken(authMiddleware, token, filepath.Join(filepath.Dir(cfg.Database.Path), apimw.SetupTokenFile))
 	}
 	if verifier := apimw.NewORRNVerifier(cfg.ORRN.SharedSecret); verifier != nil {
 		authMiddleware.SetORRNVerifier(verifier)
@@ -158,52 +162,19 @@ func main() {
 	router.LoadHTMLGlob("web/templates/**/*")
 	router.Static("/static", "web/static")
 
-	router.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "version": Version})
+	registerRoutes(router, routeDeps{
+		auth:      authMiddleware,
+		webUI:     webUIHandler,
+		printers:  printerHandler,
+		jobs:      jobHandler,
+		templates: templateHandler,
+		webhooks:  webhookHandler,
+		ai:        aiHandler,
+		archive:   archiveHandler,
+		settings:  settingsHandler,
+		scale:     handlers.NewScaleHandler(scaleService),
+		version:   Version,
 	})
-	router.GET("/login", authMiddleware.LoginPage)
-	router.POST("/login", authMiddleware.LoginForm)
-	router.POST("/logout", authMiddleware.LogoutRedirect)
-
-	authRoutes := router.Group("/api/auth")
-	{
-		authRoutes.POST("/login", authMiddleware.LoginHandler)
-		authRoutes.POST("/logout", authMiddleware.LogoutHandler)
-		authRoutes.GET("/status", authMiddleware.StatusHandler)
-		authRoutes.POST("/setup", authMiddleware.SetupHandler)
-	}
-
-	protectedPages := router.Group("/")
-	protectedPages.Use(authMiddleware.RequirePageAuth())
-	webUIHandler.RegisterPages(protectedPages)
-
-	api := router.Group("/api")
-	api.Use(authMiddleware.RequireAuth())
-	api.Use(webUIHandler.HTMXFragments())
-	{
-		handlers.RegisterTemplateRoutes(api, templateHandler)
-		handlers.RegisterAIRoutes(api, aiHandler)
-		handlers.RegisterWebhookRoutes(api, webhookHandler)
-		handlers.RegisterSettingsRoutes(api, settingsHandler)
-		archiveHandler.RegisterRoutes(api)
-		jobHandler.RegisterRoutes(api)
-		api.GET("/printers", printerHandler.ListPrinters)
-		api.POST("/printers", printerHandler.CreatePrinter)
-		api.GET("/printers/:id", printerHandler.GetPrinter)
-		api.PUT("/printers/:id", printerHandler.UpdatePrinter)
-		api.DELETE("/printers/:id", printerHandler.DeletePrinter)
-		api.GET("/printers/:id/status", printerHandler.GetPrinterStatus)
-		api.POST("/printers/:id/test", printerHandler.TestPrinter)
-		api.POST("/printers/:id/pause", printerHandler.PausePrinter)
-		api.POST("/printers/:id/resume", printerHandler.ResumePrinter)
-		api.GET("/printers/:id/counters", printerHandler.GetPrinterCounters)
-	}
-
-	scaleRoutes := router.Group("/")
-	scaleRoutes.Use(authMiddleware.RequireAuth())
-	handlers.NewScaleHandler(scaleService).RegisterRoutes(scaleRoutes)
-
-	jobHandler.RegisterLegacyRoutes(router)
 
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Server.Port),
@@ -230,4 +201,20 @@ func main() {
 	if err := server.Shutdown(ctx); err != nil {
 		log.Printf("shutdown error: %v", err)
 	}
+}
+
+// announceSetupToken tells the person at the machine how to claim a fresh
+// spool: the one-time token goes to the console log and to a file readable
+// only by the spool's user. Both stop working once the first password is set.
+func announceSetupToken(auth *apimw.AuthMiddleware, token, path string) {
+	if err := apimw.WriteSetupTokenFile(path, token); err != nil {
+		log.Printf("setup: could not write %s: %v", path, err)
+	} else {
+		auth.OnSetupComplete(func() {
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				log.Printf("setup: could not remove %s: %v", path, err)
+			}
+		})
+	}
+	log.Printf("setup: no admin password yet. Open /login and enter the one-time setup token %s (also saved in %s).", token, path)
 }

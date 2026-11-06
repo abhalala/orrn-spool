@@ -412,7 +412,7 @@ func (h *WebUIHandler) queueData(c *gin.Context) QueuePage {
 
 	load := func(status string) []QueueJobView {
 		jobs, err := db.Jobs.ListJobs(ctx, db.JobFilter{
-			Status: status, Limit: 100, OrderBy: "priority DESC, created_at", OrderDir: "ASC",
+			Status: status, Limit: 100, OrderBy: db.JobOrderQueue, OrderDir: "ASC",
 		})
 		if err != nil {
 			return nil
@@ -694,8 +694,13 @@ func historyQuery(f db.JobFilter, statuses []string) string {
 	if f.ToDate != nil {
 		q += " AND created_at <= ?"
 	}
-	// OrderBy and OrderDir come from the fixed set in historyFilter.
-	return q + fmt.Sprintf(" ORDER BY %s %s LIMIT ? OFFSET ?", f.OrderBy, f.OrderDir)
+	// historyFilter only sets allowed values; the allow-list still guards
+	// any other caller, falling back to newest first.
+	order, err := db.JobOrderClause(f.OrderBy, f.OrderDir)
+	if err != nil {
+		order = "created_at DESC"
+	}
+	return q + " ORDER BY " + order + " LIMIT ? OFFSET ?"
 }
 
 func historyArgs(f db.JobFilter, statuses []string, page int) []any {

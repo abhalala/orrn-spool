@@ -211,6 +211,12 @@ func (h *JobHandler) ListJobs(c *gin.Context) {
 	if query.Limit > 100 {
 		query.Limit = 100
 	}
+	if _, err := db.JobOrderClause(query.SortBy, query.SortDir); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "invalid sort: sort_by must be a job column name such as created_at or id, and sort_dir must be asc or desc",
+		})
+		return
+	}
 
 	filter := db.JobFilter{
 		PrinterID: query.PrinterID,
@@ -656,6 +662,18 @@ func (h *JobHandler) RegisterRoutes(r *gin.RouterGroup) {
 	r.POST("/jobs/:id/resume", h.ResumeJob)
 }
 
-func (h *JobHandler) RegisterLegacyRoutes(r *gin.Engine) {
-	r.GET("/print/:layout/:uid", h.LegacyPrintHandler)
+// RegisterLegacyRoutes mounts the old fcms print call. Printing is a side
+// effect, so it is POST only and authed must already require authentication
+// (an admin session or a signed ORRN machine token). A GET on public answers
+// 405 and queues nothing, so a link or <img> on another page cannot print.
+func (h *JobHandler) RegisterLegacyRoutes(public, authed gin.IRoutes) {
+	authed.POST("/print/:layout/:uid", h.LegacyPrintHandler)
+	public.GET("/print/:layout/:uid", refuseLegacyPrintGet)
+}
+
+func refuseLegacyPrintGet(c *gin.Context) {
+	c.Header("Allow", http.MethodPost)
+	c.JSON(http.StatusMethodNotAllowed, gin.H{
+		"error": "printing needs POST /print/:layout/:uid with a session or a signed ORRN machine token",
+	})
 }

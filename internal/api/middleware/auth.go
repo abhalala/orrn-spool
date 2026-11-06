@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -32,6 +33,69 @@ type AuthMiddleware struct {
 	db     *sql.DB
 	secret []byte
 	orrn   *ORRNVerifier
+	// machineRoutes overrides DefaultMachineRoutes once AllowMachineRoutes
+	// adds to it; nil means the defaults.
+	machineRoutes map[string]bool
+
+	// setupMu guards first-boot setup; see setup.go.
+	setupMu     sync.Mutex
+	setupToken  string
+	onSetupDone func()
+}
+
+// DefaultMachineRoutes is everything an ORRN machine token may call: the
+// requests ORRN's SpoolClient makes to a legacy spool
+// (packages/server/src/lib/spool-client.ts) plus the signed legacy print.
+// Entries are "METHOD /route/:param" as gin registers them. Settings,
+// passwords, webhooks, AI keys, archives, printer edits and deletes, the job
+// list and the pages all need the admin session, so a leaked shared secret
+// cannot take over the spool or reach the LAN through webhooks.
+var DefaultMachineRoutes = []string{
+	"GET /api/printers",
+	"POST /api/printers",
+	"GET /api/printers/:id/status",
+	"POST /api/printers/:id/test",
+	"GET /api/templates",
+	"POST /api/templates",
+	"PUT /api/templates/:id",
+	"POST /api/jobs",
+	"GET /api/jobs/:id",
+	"POST /api/jobs/:id/cancel",
+	"POST /api/jobs/:id/retry",
+	"GET /scale/reading",
+	"POST /print/:layout/:uid",
+}
+
+var defaultMachineRouteSet = routeSet(DefaultMachineRoutes)
+
+func routeSet(routes []string) map[string]bool {
+	set := make(map[string]bool, len(routes))
+	for _, r := range routes {
+		set[r] = true
+	}
+	return set
+}
+
+// AllowMachineRoutes lets ORRN machine tokens call more routes, for a
+// deployment that mounts extra machine endpoints (for example the plant
+// filter). Each entry is "METHOD /route/:param".
+func (a *AuthMiddleware) AllowMachineRoutes(routes ...string) {
+	if a.machineRoutes == nil {
+		a.machineRoutes = routeSet(DefaultMachineRoutes)
+	}
+	for _, r := range routes {
+		a.machineRoutes[r] = true
+	}
+}
+
+// machineMayCall reports whether the matched route is in the machine scope.
+func (a *AuthMiddleware) machineMayCall(c *gin.Context) bool {
+	set := a.machineRoutes
+	if set == nil {
+		set = defaultMachineRouteSet
+	}
+	full := c.FullPath()
+	return full != "" && set[c.Request.Method+" "+full]
 }
 
 // SetORRNVerifier turns on ORRN's "Bearer v1:<ts>:<hmac>" machine auth next to
@@ -40,10 +104,17 @@ func (a *AuthMiddleware) SetORRNVerifier(v *ORRNVerifier) {
 	a.orrn = v
 }
 
+// isMachineAuth reports whether an Authorization header value carries an ORRN
+// v1 machine token. RequireAuth then authenticates by that header alone and
+// ignores any session cookie.
+func isMachineAuth(header string) bool {
+	return strings.HasPrefix(header, "Bearer "+ORRNTokenPrefix)
+}
+
 // orrnToken returns the v1 machine token from the Authorization header, if any.
 func orrnToken(c *gin.Context) (string, bool) {
 	authHeader := c.GetHeader("Authorization")
-	if !strings.HasPrefix(authHeader, "Bearer "+ORRNTokenPrefix) {
+	if !isMachineAuth(authHeader) {
 		return "", false
 	}
 	return strings.TrimPrefix(authHeader, "Bearer "), true
@@ -83,7 +154,8 @@ type ChangePasswordRequest struct {
 }
 
 type SetupRequest struct {
-	Password string `json:"password" binding:"required,min=6"`
+	Password   string `json:"password" binding:"required,min=6"`
+	SetupToken string `json:"setup_token"`
 }
 
 type StatusResponse struct {
@@ -99,6 +171,14 @@ func NewAuthMiddleware(database *sql.DB) (*AuthMiddleware, error) {
 		return nil, err
 	}
 	a.secret = secret
+
+	if a.isSetupRequired() {
+		token, err := newSetupToken()
+		if err != nil {
+			return nil, err
+		}
+		a.setupToken = token
+	}
 
 	return a, nil
 }
@@ -182,12 +262,32 @@ func secureCookie(c *gin.Context) bool {
 	return c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
 }
 
+// setAuthCookie stores the session. SameSite=Lax keeps the cookie off
+// cross-site POSTs and subresource requests while a link from ORRN to the
+// spool still opens signed in; CrossOriginProtection covers same-site pages
+// (another port on the plant host) that SameSite does not.
 func (a *AuthMiddleware) setAuthCookie(c *gin.Context, token string) {
-	c.SetCookie(cookieName, token, int(tokenDuration.Seconds()), "/", "", secureCookie(c), true)
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     cookieName,
+		Value:    token,
+		Path:     "/",
+		MaxAge:   int(tokenDuration.Seconds()),
+		Secure:   secureCookie(c),
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
 }
 
 func (a *AuthMiddleware) clearAuthCookie(c *gin.Context) {
-	c.SetCookie(cookieName, "", -1, "/", "", secureCookie(c), true)
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     cookieName,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		Secure:   secureCookie(c),
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
 }
 
 func (a *AuthMiddleware) LoginHandler(c *gin.Context) {
@@ -285,6 +385,8 @@ func (a *AuthMiddleware) ChangePasswordHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Password changed"})
 }
 
+// SetupHandler sets the first admin password. It needs the one-time setup
+// token the spool printed at start (see setup.go).
 func (a *AuthMiddleware) SetupHandler(c *gin.Context) {
 	if !a.isSetupRequired() {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Setup already completed"})
@@ -297,15 +399,14 @@ func (a *AuthMiddleware) SetupHandler(c *gin.Context) {
 		return
 	}
 
-	ctx := context.Background()
-
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
+	switch err := a.completeSetup(c.Request.Context(), req.Password, req.SetupToken); {
+	case errors.Is(err, ErrSetupDone):
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Setup already completed"})
 		return
-	}
-
-	if err := db.Settings.SetSetting(ctx, settingsKeyPassword, string(hashedPassword), false); err != nil {
+	case errors.Is(err, ErrSetupToken):
+		c.JSON(http.StatusForbidden, gin.H{"error": setupTokenHelp})
+		return
+	case err != nil:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save password"})
 		return
 	}
@@ -320,11 +421,20 @@ func (a *AuthMiddleware) SetupHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Setup completed"})
 }
 
+// setupTokenHelp tells the operator where the setup token is.
+const setupTokenHelp = "Setup token missing or wrong. It is printed in the spool's console log at start and saved in the setup-token file next to its database."
+
 func (a *AuthMiddleware) RequireAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if machineToken, ok := orrnToken(c); ok {
+			// Verify first, so a token that does not verify is 401 on every
+			// route and the answer does not reveal the machine scope.
 			if !a.authenticateORRN(c, machineToken) {
 				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+				return
+			}
+			if !a.machineMayCall(c) {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "this route needs the spool admin session; ORRN machine tokens cannot call it"})
 				return
 			}
 			c.Next()

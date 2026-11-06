@@ -322,20 +322,16 @@ func (o *JobOperations) ListJobs(ctx context.Context, filter JobFilter) ([]*Prin
 		args = append(args, filter.ToDate)
 	}
 
-	orderBy := "created_at"
-	if filter.OrderBy != "" {
-		orderBy = filter.OrderBy
-	}
-	orderDir := "DESC"
-	if filter.OrderDir != "" {
-		orderDir = filter.OrderDir
+	order, err := JobOrderClause(filter.OrderBy, filter.OrderDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list jobs: %w", err)
 	}
 
 	query := "SELECT " + jobColumns + " FROM print_jobs"
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
-	query += fmt.Sprintf(" ORDER BY %s %s", orderBy, orderDir)
+	query += " ORDER BY " + order
 
 	limit := 100
 	if filter.Limit > 0 {
@@ -492,6 +488,20 @@ func (o *SettingsOperations) SetSetting(ctx context.Context, key, value string, 
 		return fmt.Errorf("failed to set setting: %w", err)
 	}
 	return nil
+}
+
+// CreateSettingIfAbsent stores key only when it does not exist yet and
+// reports whether this call created it. An existing value is left alone.
+func (o *SettingsOperations) CreateSettingIfAbsent(ctx context.Context, key, value string, encrypted bool) (bool, error) {
+	res, err := GetDB().ExecContext(ctx, CreateSettingIfAbsent, key, value, encrypted)
+	if err != nil {
+		return false, fmt.Errorf("failed to create setting: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("failed to create setting: %w", err)
+	}
+	return n == 1, nil
 }
 
 func (o *SettingsOperations) DeleteSetting(ctx context.Context, key string) error {

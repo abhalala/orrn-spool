@@ -151,7 +151,18 @@ when preparing a cutover.
 
 ### First-time Setup
 
-1. **Set Password** - On first access, you'll be prompted to create an admin password
+1. **Set Password** - On first access, you'll be prompted to create an admin password.
+   The page also asks for the one-time setup token. The spool prints it in its
+   console log when it starts with no password (`setup: no admin password
+   yet ...`) and writes it to `setup-token` next to its database, readable only
+   by the spool's user. The token stops working once a password is set, and the
+   file is removed. To reset a lost password, delete the `admin_password`
+   setting and restart the spool: it makes a new token. The token does not
+   expire until setup is done, so treat that console line as a secret: do not
+   ship the spool's start-up log to a shared log sink before the first
+   password is set. On Windows the file's owner-only mode is not enforced and
+   the file takes the state directory's permissions; that directory also holds
+   the database and the JWT secret, so restrict it to the spool's account.
 2. **Add a Printer** - Navigate to Printers → Add Printer
 3. **Create a Template** - Navigate to Templates → New Template
 4. **Print a Test Job** - Use the test print feature to verify connectivity
@@ -187,7 +198,7 @@ deployment secret and tunnel credentials, a separate `cloudflared` connector,
 valid HTTPS for the enrolled hostname, and printer/template/profile bindings.
 Check for an existing active company deployment before activating a new one.
 Only publish signed API paths and `/health`; do not expose the legacy
-unauthenticated `/print/:layout/:uid` route or first-time admin setup.
+`/print/:layout/:uid` route or first-time admin setup.
 
 The TSC TA220 at `20.0.0.182:9100` was reachable from CT 130. Read-only printer
 pages reported Ready, media **102.25 × 76.20 mm**, gap **2.00 mm**, gap sensor,
@@ -199,6 +210,19 @@ The legacy web app and BarTender host answered HTTP 200. VM 181's SATA disk
 still has permanent ZFS corruption and its previous backup failed: retaining
 that VM is **not** a verified backup. Do not put the new spool on `adata_array`.
 No legacy print-proxy cutover has been performed.
+
+#### Public relay Worker
+
+`cloudflare/` is the Worker that serves `fcprimary-spool.orrn.in` and
+reaches CT 130 through the Workers VPC service `FCPRIMARY_SPOOL`. It forwards
+`/health` and, pinned by method, only the calls ORRN's `SpoolClient` makes:
+printer list/add/status/test, template list/add/update, job create/get/
+cancel/retry, `/scale/reading` and the five `/filter/*` owner calls. Anything
+else, any query string, and any request without an
+`Authorization: Bearer v1:...` machine token answers 404 or 401 at the edge,
+and cookies are stripped. Run `node --test cloudflare/` after a change. The
+spool enforces the same limit itself (see Authentication), so the Worker is a
+second fence, not the only one. Deploy is a separate, owner-approved step.
 
 #### Moving the verified node to a Raspberry Pi
 
@@ -274,6 +298,13 @@ The application uses SQLite for data storage:
 
 All API endpoints (except `/health` and `/api/auth/*`) require JWT authentication.
 
+The browser session is an HttpOnly, `SameSite=Lax` cookie. State-changing
+requests (POST, PUT, PATCH, DELETE) that a browser sends from another origin
+are refused with `403`, judged by `Sec-Fetch-Site` and `Origin`. Requests that
+carry an ORRN machine token (`Authorization: Bearer v1:...`), and non-browser
+clients that send neither header, are not affected. Any other `Authorization`
+value gets the same origin check as a cookie request.
+
 ```bash
 # Login
 curl -X POST http://localhost:8080/api/auth/login \
@@ -289,6 +320,16 @@ Include the token in subsequent requests:
 ```bash
 curl -H "Authorization: Bearer <token>" http://localhost:8080/api/printers
 ```
+
+ORRN calls the spool with a signed machine token instead
+(`Authorization: Bearer v1:<ts>:<hmac>`, see `docs/scale-and-orrn-auth.md`).
+A machine token reaches only `DefaultMachineRoutes` in
+`internal/api/middleware/auth.go`, the routes ORRN's `SpoolClient` uses.
+Every other route, including settings, password, webhooks, AI, archives,
+printer edits and the job list, answers `403` to a valid machine token and
+needs the admin session. A machine token that does not verify answers `401` on
+every route. A deployment that mounts extra machine endpoints (the plant
+filter) adds them with `AuthMiddleware.AllowMachineRoutes`.
 
 ### Printers API
 
@@ -382,13 +423,17 @@ inconsistent dimensions are rejected without changing the stored template.
 
 ### Legacy API
 
-For backward compatibility:
+For backward compatibility with the old fcms print call:
 
 ```
-GET /print/:layout/:uid
+POST /print/:layout/:uid
 ```
 
 Automatically selects an available printer and prints using the named template.
+It needs a signed-in session or a signed ORRN machine token
+(`Authorization: Bearer v1:<ts>:<hmac>`, valid for five minutes and used once).
+`GET /print/:layout/:uid` answers `405` and queues nothing, so a link or image
+on another page cannot print a label.
 
 ## Usage Examples
 
