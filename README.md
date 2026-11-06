@@ -200,6 +200,19 @@ still has permanent ZFS corruption and its previous backup failed: retaining
 that VM is **not** a verified backup. Do not put the new spool on `adata_array`.
 No legacy print-proxy cutover has been performed.
 
+#### Public relay Worker
+
+`cloudflare/` is the Worker that serves `fcprimary-spool.orrn.in` and
+reaches CT 130 through the Workers VPC service `FCPRIMARY_SPOOL`. It forwards
+`/health` and, pinned by method, only the calls ORRN's `SpoolClient` makes:
+printer list/add/status/test, template list/add/update, job create/get/
+cancel/retry, `/scale/reading` and the five `/filter/*` owner calls. Anything
+else, any query string, and any request without an
+`Authorization: Bearer v1:...` machine token answers 404 or 401 at the edge,
+and cookies are stripped. Run `node --test cloudflare/` after a change. The
+spool enforces the same limit itself (see Authentication), so the Worker is a
+second fence, not the only one. Deploy is a separate, owner-approved step.
+
 #### Moving the verified node to a Raspberry Pi
 
 Use a 64-bit Raspberry Pi OS/Ubuntu installation and build this source for
@@ -289,6 +302,15 @@ Include the token in subsequent requests:
 ```bash
 curl -H "Authorization: Bearer <token>" http://localhost:8080/api/printers
 ```
+
+ORRN calls the spool with a signed machine token instead
+(`Authorization: Bearer v1:<ts>:<hmac>`, see `docs/scale-and-orrn-auth.md`).
+A machine token reaches only `DefaultMachineRoutes` in
+`internal/api/middleware/auth.go`, the routes ORRN's `SpoolClient` uses.
+Every other route, including settings, password, webhooks, AI, archives,
+printer edits and the job list, answers `403` to a machine token and needs the
+admin session. A deployment that mounts extra machine endpoints (the plant
+filter) adds them with `AuthMiddleware.AllowMachineRoutes`.
 
 ### Printers API
 

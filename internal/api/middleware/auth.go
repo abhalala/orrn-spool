@@ -32,6 +32,64 @@ type AuthMiddleware struct {
 	db     *sql.DB
 	secret []byte
 	orrn   *ORRNVerifier
+	// machineRoutes overrides DefaultMachineRoutes once AllowMachineRoutes
+	// adds to it; nil means the defaults.
+	machineRoutes map[string]bool
+}
+
+// DefaultMachineRoutes is everything an ORRN machine token may call: the
+// requests ORRN's SpoolClient makes to a legacy spool
+// (packages/server/src/lib/spool-client.ts) plus the signed legacy print.
+// Entries are "METHOD /route/:param" as gin registers them. Settings,
+// passwords, webhooks, AI keys, archives, printer edits and deletes, the job
+// list and the pages all need the admin session, so a leaked shared secret
+// cannot take over the spool or reach the LAN through webhooks.
+var DefaultMachineRoutes = []string{
+	"GET /api/printers",
+	"POST /api/printers",
+	"GET /api/printers/:id/status",
+	"POST /api/printers/:id/test",
+	"GET /api/templates",
+	"POST /api/templates",
+	"PUT /api/templates/:id",
+	"POST /api/jobs",
+	"GET /api/jobs/:id",
+	"POST /api/jobs/:id/cancel",
+	"POST /api/jobs/:id/retry",
+	"GET /scale/reading",
+	"POST /print/:layout/:uid",
+}
+
+var defaultMachineRouteSet = routeSet(DefaultMachineRoutes)
+
+func routeSet(routes []string) map[string]bool {
+	set := make(map[string]bool, len(routes))
+	for _, r := range routes {
+		set[r] = true
+	}
+	return set
+}
+
+// AllowMachineRoutes lets ORRN machine tokens call more routes, for a
+// deployment that mounts extra machine endpoints (for example the plant
+// filter). Each entry is "METHOD /route/:param".
+func (a *AuthMiddleware) AllowMachineRoutes(routes ...string) {
+	if a.machineRoutes == nil {
+		a.machineRoutes = routeSet(DefaultMachineRoutes)
+	}
+	for _, r := range routes {
+		a.machineRoutes[r] = true
+	}
+}
+
+// machineMayCall reports whether the matched route is in the machine scope.
+func (a *AuthMiddleware) machineMayCall(c *gin.Context) bool {
+	set := a.machineRoutes
+	if set == nil {
+		set = defaultMachineRouteSet
+	}
+	full := c.FullPath()
+	return full != "" && set[c.Request.Method+" "+full]
 }
 
 // SetORRNVerifier turns on ORRN's "Bearer v1:<ts>:<hmac>" machine auth next to
@@ -323,6 +381,10 @@ func (a *AuthMiddleware) SetupHandler(c *gin.Context) {
 func (a *AuthMiddleware) RequireAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if machineToken, ok := orrnToken(c); ok {
+			if !a.machineMayCall(c) {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "this route needs the spool admin session; ORRN machine tokens cannot call it"})
+				return
+			}
 			if !a.authenticateORRN(c, machineToken) {
 				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
 				return
