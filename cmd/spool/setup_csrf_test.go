@@ -80,6 +80,9 @@ func TestCrossSiteMutationRefused(t *testing.T) {
 		{"fetch metadata same-site (other port on the plant host)", map[string]string{"Sec-Fetch-Site": "same-site", "Origin": "http://spool.test:3000"}, true},
 		{"origin mismatch, no fetch metadata", map[string]string{"Origin": "http://evil.example"}, true},
 		{"null origin", map[string]string{"Origin": "null"}, true},
+		// The cookie authenticates here, not the header, so the header must
+		// not switch the origin check off.
+		{"cross-site with a junk Authorization header", map[string]string{"Authorization": "Bearer junk", "Sec-Fetch-Site": "cross-site", "Origin": "http://evil.example"}, true},
 		{"same origin", map[string]string{"Sec-Fetch-Site": "same-origin", "Origin": "http://" + testHost}, false},
 		{"origin matches, older browser", map[string]string{"Origin": "http://" + testHost}, false},
 		{"user typed or bookmarked", map[string]string{"Sec-Fetch-Site": "none"}, false},

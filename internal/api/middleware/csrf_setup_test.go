@@ -33,6 +33,12 @@ func TestCheckCrossOrigin(t *testing.T) {
 		{"matching origin only", http.MethodPost, map[string]string{"Origin": "http://" + host}, false},
 		{"no browser headers", http.MethodPost, nil, false},
 		{"bearer token from a script", http.MethodPost, map[string]string{"Authorization": "Bearer v1:x:y", "Sec-Fetch-Site": "cross-site"}, false},
+		// RequireAuth reads the session cookie before a non-machine header, so
+		// only the machine token shape may skip the origin check.
+		{"junk Authorization header", http.MethodPost, map[string]string{"Authorization": "junk", "Sec-Fetch-Site": "cross-site"}, true},
+		{"basic auth header", http.MethodPost, map[string]string{"Authorization": "Basic Zm9vOmJhcg==", "Origin": "http://evil.example"}, true},
+		{"bearer JWT from another site", http.MethodPost, map[string]string{"Authorization": "Bearer eyJhbGciOiJIUzI1NiJ9.e30.x", "Sec-Fetch-Site": "cross-site"}, true},
+		{"bearer JWT from a script", http.MethodPost, map[string]string{"Authorization": "Bearer eyJhbGciOiJIUzI1NiJ9.e30.x"}, false},
 	}
 	for _, tc := range cases {
 		req := httptest.NewRequest(tc.method, "/api/jobs", nil)

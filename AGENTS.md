@@ -210,7 +210,8 @@ JWT-based authentication with password-only login:
 3. Protected routes require valid JWT
 4. `CrossOriginProtection` (first middleware in `cmd/spool/routes.go`) refuses
    POST/PUT/PATCH/DELETE whose `Sec-Fetch-Site` or `Origin` shows another
-   origin. Requests with an `Authorization` header are not checked.
+   origin. Only requests with an ORRN machine token (`Authorization: Bearer
+   v1:...`) skip the check; RequireAuth ignores the cookie for those.
 5. ORRN machine tokens reach only `DefaultMachineRoutes`
    (`internal/api/middleware/auth.go`); any other route is 403 for them. Add a
    machine route there, or with `AllowMachineRoutes`, only for a call ORRN's

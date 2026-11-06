@@ -104,10 +104,17 @@ func (a *AuthMiddleware) SetORRNVerifier(v *ORRNVerifier) {
 	a.orrn = v
 }
 
+// isMachineAuth reports whether an Authorization header value carries an ORRN
+// v1 machine token. RequireAuth then authenticates by that header alone and
+// ignores any session cookie.
+func isMachineAuth(header string) bool {
+	return strings.HasPrefix(header, "Bearer "+ORRNTokenPrefix)
+}
+
 // orrnToken returns the v1 machine token from the Authorization header, if any.
 func orrnToken(c *gin.Context) (string, bool) {
 	authHeader := c.GetHeader("Authorization")
-	if !strings.HasPrefix(authHeader, "Bearer "+ORRNTokenPrefix) {
+	if !isMachineAuth(authHeader) {
 		return "", false
 	}
 	return strings.TrimPrefix(authHeader, "Bearer "), true

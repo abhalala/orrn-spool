@@ -12,12 +12,16 @@ var errCrossOrigin = errors.New("cross-origin request refused")
 
 // CrossOriginProtection refuses state-changing browser requests that come
 // from another origin, so a page elsewhere cannot use the operator's session
-// cookie. It follows the same rules as Go 1.25's http.CrossOriginProtection:
+// cookie. It follows Go 1.25's http.CrossOriginProtection, with one added
+// rule for ORRN's machine tokens:
 //
 //   - GET, HEAD and OPTIONS pass (they must not change state).
-//   - A request with an Authorization header passes: browsers never add one
-//     cross-origin without a CORS preflight, which the spool does not grant.
-//     This is how ORRN machine tokens and API clients authenticate.
+//   - A request with an ORRN machine token ("Authorization: Bearer v1:...")
+//     passes: RequireAuth then authenticates by that header alone and ignores
+//     any cookie, and browsers never add the header cross-origin without a
+//     CORS preflight, which the spool does not grant. Any other Authorization
+//     value is checked like a cookie request, because RequireAuth reads the
+//     session cookie before it.
 //   - Sec-Fetch-Site "same-origin" or "none" (typed or bookmarked) passes;
 //     any other value ("same-site", "cross-site") is refused.
 //   - Without Sec-Fetch-Site, an Origin header must name this host.
@@ -42,7 +46,7 @@ func checkCrossOrigin(r *http.Request) error {
 	case http.MethodGet, http.MethodHead, http.MethodOptions:
 		return nil
 	}
-	if r.Header.Get("Authorization") != "" {
+	if isMachineAuth(r.Header.Get("Authorization")) {
 		return nil
 	}
 	switch r.Header.Get("Sec-Fetch-Site") {

@@ -296,8 +296,9 @@ All API endpoints (except `/health` and `/api/auth/*`) require JWT authenticatio
 The browser session is an HttpOnly, `SameSite=Lax` cookie. State-changing
 requests (POST, PUT, PATCH, DELETE) that a browser sends from another origin
 are refused with `403`, judged by `Sec-Fetch-Site` and `Origin`. Requests that
-carry an `Authorization` header, and non-browser clients that send neither
-header, are not affected.
+carry an ORRN machine token (`Authorization: Bearer v1:...`), and non-browser
+clients that send neither header, are not affected. Any other `Authorization`
+value gets the same origin check as a cookie request.
 
 ```bash
 # Login
