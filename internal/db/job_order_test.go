@@ -84,6 +84,10 @@ func TestCreateSettingIfAbsentNeverOverwrites(t *testing.T) {
 	initShared(t)
 	ctx := context.Background()
 	key := "create_once_" + t.Name()
+	// The database is shared across -count runs; start without the key.
+	if err := Settings.DeleteSetting(ctx, key); err != nil {
+		t.Fatal(err)
+	}
 	created, err := Settings.CreateSettingIfAbsent(ctx, key, "first", false)
 	if err != nil || !created {
 		t.Fatalf("first create: created=%v err=%v", created, err)

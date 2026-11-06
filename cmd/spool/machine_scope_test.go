@@ -1,9 +1,17 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/orrn/spool/internal/db"
 )
 
 // ---- Finding 3: machine token scope ----
@@ -87,4 +95,79 @@ func TestAdminSessionStillReachesAdminRoutes(t *testing.T) {
 			t.Errorf("GET %s with an admin session: %d", path, w.Code)
 		}
 	}
+}
+
+// ORRN's calls work end to end with a machine token, not only get past the
+// scope gate: each answers 2xx and returns or changes the seeded rows. The
+// printer status and test print need a live printer manager, which the test
+// spool does not have; the route sweep above covers their scope.
+func TestMachineTokenCallsWorkEndToEnd(t *testing.T) {
+	s := newTestSpool(t)
+	ctx := context.Background()
+	seq := atomic.AddInt64(&printerSeq, 1)
+	printer := &db.Printer{Name: fmt.Sprintf("orrn-%s-%d", t.Name(), seq), IPAddress: fmt.Sprintf("10.78.%d.%d", seq/250, seq%250+1),
+		Port: 9100, DPI: 203, LabelWidthMM: 50, LabelHeightMM: 30, GapMM: 2, Status: "online"}
+	if err := db.Printers.CreatePrinter(ctx, printer); err != nil {
+		t.Fatal(err)
+	}
+	schema := `{"name":"orrn","width_mm":50,"height_mm":30,"dpi":203,` +
+		`"elements":[{"type":"text","x":10,"y":10,"content":"{{uid}}","font":"3"}],` +
+		`"variables":{"uid":{"type":"string","required":true}}}`
+	tmpl := &db.LabelTemplate{Name: fmt.Sprintf("orrn-%s-%d", t.Name(), seq), SchemaJSON: schema, WidthMM: 50, HeightMM: 30}
+	if err := db.Templates.CreateTemplate(ctx, tmpl); err != nil {
+		t.Fatal(err)
+	}
+
+	call := func(method, path string, body any, want int) []byte {
+		t.Helper()
+		var raw []byte
+		if body != nil {
+			raw, _ = json.Marshal(body)
+		}
+		w := s.machine(method, path, raw)
+		if w.Code != want {
+			t.Fatalf("machine %s %s: %d %s, want %d", method, path, w.Code, w.Body.String(), want)
+		}
+		return w.Body.Bytes()
+	}
+	idOf := func(raw []byte) int64 {
+		t.Helper()
+		var v struct {
+			ID int64 `json:"id"`
+		}
+		if err := json.Unmarshal(raw, &v); err != nil || v.ID == 0 {
+			t.Fatalf("no id in %s (%v)", raw, err)
+		}
+		return v.ID
+	}
+
+	if got := call(http.MethodGet, "/api/printers", nil, http.StatusOK); !bytes.Contains(got, []byte(printer.Name)) {
+		t.Errorf("GET /api/printers does not list %s", printer.Name)
+	}
+	if got := call(http.MethodGet, "/api/templates", nil, http.StatusOK); !bytes.Contains(got, []byte(tmpl.Name)) {
+		t.Errorf("GET /api/templates does not list %s", tmpl.Name)
+	}
+
+	created := idOf(call(http.MethodPost, "/api/templates", map[string]any{
+		"name": tmpl.Name + "-new", "schema_json": schema, "width_mm": 50, "height_mm": 30,
+	}, http.StatusCreated))
+	call(http.MethodPut, fmt.Sprintf("/api/templates/%d", created), map[string]any{"description": "from ORRN"}, http.StatusOK)
+	if got, err := db.Templates.GetTemplateByID(ctx, created); err != nil || got.Description != "from ORRN" {
+		t.Errorf("PUT /api/templates/%d did not store the change: %+v %v", created, got, err)
+	}
+
+	jobBody := call(http.MethodPost, "/api/jobs", map[string]any{
+		"printer_id": printer.ID, "template_id": tmpl.ID, "variables": map[string]string{"uid": "U-E2E"},
+		"job_key": fmt.Sprintf("e2e-%d-%d", seq, time.Now().UnixNano()),
+	}, http.StatusCreated)
+	job := idOf(jobBody)
+	if got := call(http.MethodGet, fmt.Sprintf("/api/jobs/%d", job), nil, http.StatusOK); idOf(got) != job {
+		t.Errorf("GET /api/jobs/%d returned another job: %s", job, got)
+	}
+	call(http.MethodPost, fmt.Sprintf("/api/jobs/%d/cancel", job), nil, http.StatusOK)
+	// Only a failed job can be retried; the test spool has no worker to fail it.
+	if _, err := db.GetDB().Exec("UPDATE print_jobs SET status = 'failed' WHERE id = ?", job); err != nil {
+		t.Fatal(err)
+	}
+	call(http.MethodPost, fmt.Sprintf("/api/jobs/%d/retry", job), nil, http.StatusOK)
 }
