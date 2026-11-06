@@ -662,6 +662,18 @@ func (h *JobHandler) RegisterRoutes(r *gin.RouterGroup) {
 	r.POST("/jobs/:id/resume", h.ResumeJob)
 }
 
-func (h *JobHandler) RegisterLegacyRoutes(r *gin.Engine) {
-	r.GET("/print/:layout/:uid", h.LegacyPrintHandler)
+// RegisterLegacyRoutes mounts the old fcms print call. Printing is a side
+// effect, so it is POST only and authed must already require authentication
+// (an admin session or a signed ORRN machine token). A GET on public answers
+// 405 and queues nothing, so a link or <img> on another page cannot print.
+func (h *JobHandler) RegisterLegacyRoutes(public, authed gin.IRoutes) {
+	authed.POST("/print/:layout/:uid", h.LegacyPrintHandler)
+	public.GET("/print/:layout/:uid", refuseLegacyPrintGet)
+}
+
+func refuseLegacyPrintGet(c *gin.Context) {
+	c.Header("Allow", http.MethodPost)
+	c.JSON(http.StatusMethodNotAllowed, gin.H{
+		"error": "printing needs POST /print/:layout/:uid with a session or a signed ORRN machine token",
+	})
 }

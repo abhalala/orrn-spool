@@ -74,5 +74,7 @@ func registerRoutes(router *gin.Engine, d routeDeps) {
 	scaleRoutes.Use(d.auth.RequireAuth())
 	d.scale.RegisterRoutes(scaleRoutes)
 
-	d.jobs.RegisterLegacyRoutes(router)
+	legacyPrint := router.Group("/")
+	legacyPrint.Use(d.auth.RequireAuth())
+	d.jobs.RegisterLegacyRoutes(router, legacyPrint)
 }

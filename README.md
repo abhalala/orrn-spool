@@ -187,7 +187,7 @@ deployment secret and tunnel credentials, a separate `cloudflared` connector,
 valid HTTPS for the enrolled hostname, and printer/template/profile bindings.
 Check for an existing active company deployment before activating a new one.
 Only publish signed API paths and `/health`; do not expose the legacy
-unauthenticated `/print/:layout/:uid` route or first-time admin setup.
+`/print/:layout/:uid` route or first-time admin setup.
 
 The TSC TA220 at `20.0.0.182:9100` was reachable from CT 130. Read-only printer
 pages reported Ready, media **102.25 × 76.20 mm**, gap **2.00 mm**, gap sensor,
@@ -382,13 +382,17 @@ inconsistent dimensions are rejected without changing the stored template.
 
 ### Legacy API
 
-For backward compatibility:
+For backward compatibility with the old fcms print call:
 
 ```
-GET /print/:layout/:uid
+POST /print/:layout/:uid
 ```
 
 Automatically selects an available printer and prints using the named template.
+It needs a signed-in session or a signed ORRN machine token
+(`Authorization: Bearer v1:<ts>:<hmac>`, valid for five minutes and used once).
+`GET /print/:layout/:uid` answers `405` and queues nothing, so a link or image
+on another page cannot print a label.
 
 ## Usage Examples
 
