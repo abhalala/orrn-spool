@@ -157,7 +157,12 @@ when preparing a cutover.
    yet ...`) and writes it to `setup-token` next to its database, readable only
    by the spool's user. The token stops working once a password is set, and the
    file is removed. To reset a lost password, delete the `admin_password`
-   setting and restart the spool: it makes a new token.
+   setting and restart the spool: it makes a new token. The token does not
+   expire until setup is done, so treat that console line as a secret: do not
+   ship the spool's start-up log to a shared log sink before the first
+   password is set. On Windows the file's owner-only mode is not enforced and
+   the file takes the state directory's permissions; that directory also holds
+   the database and the JWT secret, so restrict it to the spool's account.
 2. **Add a Printer** - Navigate to Printers → Add Printer
 3. **Create a Template** - Navigate to Templates → New Template
 4. **Print a Test Job** - Use the test print feature to verify connectivity
