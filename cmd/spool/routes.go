@@ -29,6 +29,10 @@ type routeDeps struct {
 // registerRoutes mounts every spool route on router. Template loading and
 // /static stay in main because they depend on the working directory.
 func registerRoutes(router *gin.Engine, d routeDeps) {
+	// First, so every state-changing route (login and setup included) is
+	// refused when a browser sends it from another origin.
+	router.Use(apimw.CrossOriginProtection())
+
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "version": d.version})
 	})

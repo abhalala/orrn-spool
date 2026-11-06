@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -66,12 +67,14 @@ func (a *AuthMiddleware) LoginForm(c *gin.Context) {
 			fail(true, http.StatusBadRequest, "Passwords do not match")
 			return
 		}
-		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-		if err != nil {
-			fail(true, http.StatusInternalServerError, "Failed to hash password")
+		switch err := a.completeSetup(ctx, password, c.PostForm("setup_token")); {
+		case errors.Is(err, ErrSetupToken):
+			fail(true, http.StatusForbidden, setupTokenHelp)
 			return
-		}
-		if err := db.Settings.SetSetting(ctx, settingsKeyPassword, string(hash), false); err != nil {
+		case errors.Is(err, ErrSetupDone):
+			fail(false, http.StatusBadRequest, "Setup is already complete. Sign in with the admin password.")
+			return
+		case err != nil:
 			fail(true, http.StatusInternalServerError, "Failed to save password")
 			return
 		}

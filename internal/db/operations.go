@@ -490,6 +490,20 @@ func (o *SettingsOperations) SetSetting(ctx context.Context, key, value string, 
 	return nil
 }
 
+// CreateSettingIfAbsent stores key only when it does not exist yet and
+// reports whether this call created it. An existing value is left alone.
+func (o *SettingsOperations) CreateSettingIfAbsent(ctx context.Context, key, value string, encrypted bool) (bool, error) {
+	res, err := GetDB().ExecContext(ctx, CreateSettingIfAbsent, key, value, encrypted)
+	if err != nil {
+		return false, fmt.Errorf("failed to create setting: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("failed to create setting: %w", err)
+	}
+	return n == 1, nil
+}
+
 func (o *SettingsOperations) DeleteSetting(ctx context.Context, key string) error {
 	_, err := GetDB().ExecContext(ctx, DeleteSetting, key)
 	if err != nil {

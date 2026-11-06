@@ -185,6 +185,14 @@ const (
 		ON CONFLICT(key) DO UPDATE SET value = ?, encrypted = ?, updated_at = CURRENT_TIMESTAMP
 	`
 
+	// CreateSettingIfAbsent inserts and never overwrites, so two callers
+	// racing to create the same key cannot both succeed.
+	CreateSettingIfAbsent = `
+		INSERT INTO settings (key, value, encrypted, updated_at)
+		VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(key) DO NOTHING
+	`
+
 	DeleteSetting = `DELETE FROM settings WHERE key = ?`
 
 	ListSettings = `SELECT key, value, encrypted, updated_at FROM settings ORDER BY key ASC`

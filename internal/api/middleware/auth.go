@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -35,6 +36,11 @@ type AuthMiddleware struct {
 	// machineRoutes overrides DefaultMachineRoutes once AllowMachineRoutes
 	// adds to it; nil means the defaults.
 	machineRoutes map[string]bool
+
+	// setupMu guards first-boot setup; see setup.go.
+	setupMu     sync.Mutex
+	setupToken  string
+	onSetupDone func()
 }
 
 // DefaultMachineRoutes is everything an ORRN machine token may call: the
@@ -141,7 +147,8 @@ type ChangePasswordRequest struct {
 }
 
 type SetupRequest struct {
-	Password string `json:"password" binding:"required,min=6"`
+	Password   string `json:"password" binding:"required,min=6"`
+	SetupToken string `json:"setup_token"`
 }
 
 type StatusResponse struct {
@@ -157,6 +164,14 @@ func NewAuthMiddleware(database *sql.DB) (*AuthMiddleware, error) {
 		return nil, err
 	}
 	a.secret = secret
+
+	if a.isSetupRequired() {
+		token, err := newSetupToken()
+		if err != nil {
+			return nil, err
+		}
+		a.setupToken = token
+	}
 
 	return a, nil
 }
@@ -240,12 +255,32 @@ func secureCookie(c *gin.Context) bool {
 	return c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
 }
 
+// setAuthCookie stores the session. SameSite=Lax keeps the cookie off
+// cross-site POSTs and subresource requests while a link from ORRN to the
+// spool still opens signed in; CrossOriginProtection covers same-site pages
+// (another port on the plant host) that SameSite does not.
 func (a *AuthMiddleware) setAuthCookie(c *gin.Context, token string) {
-	c.SetCookie(cookieName, token, int(tokenDuration.Seconds()), "/", "", secureCookie(c), true)
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     cookieName,
+		Value:    token,
+		Path:     "/",
+		MaxAge:   int(tokenDuration.Seconds()),
+		Secure:   secureCookie(c),
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
 }
 
 func (a *AuthMiddleware) clearAuthCookie(c *gin.Context) {
-	c.SetCookie(cookieName, "", -1, "/", "", secureCookie(c), true)
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     cookieName,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		Secure:   secureCookie(c),
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
 }
 
 func (a *AuthMiddleware) LoginHandler(c *gin.Context) {
@@ -343,6 +378,8 @@ func (a *AuthMiddleware) ChangePasswordHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Password changed"})
 }
 
+// SetupHandler sets the first admin password. It needs the one-time setup
+// token the spool printed at start (see setup.go).
 func (a *AuthMiddleware) SetupHandler(c *gin.Context) {
 	if !a.isSetupRequired() {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Setup already completed"})
@@ -355,15 +392,14 @@ func (a *AuthMiddleware) SetupHandler(c *gin.Context) {
 		return
 	}
 
-	ctx := context.Background()
-
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
+	switch err := a.completeSetup(c.Request.Context(), req.Password, req.SetupToken); {
+	case errors.Is(err, ErrSetupDone):
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Setup already completed"})
 		return
-	}
-
-	if err := db.Settings.SetSetting(ctx, settingsKeyPassword, string(hashedPassword), false); err != nil {
+	case errors.Is(err, ErrSetupToken):
+		c.JSON(http.StatusForbidden, gin.H{"error": setupTokenHelp})
+		return
+	case err != nil:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save password"})
 		return
 	}
@@ -377,6 +413,9 @@ func (a *AuthMiddleware) SetupHandler(c *gin.Context) {
 	a.setAuthCookie(c, token)
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Setup completed"})
 }
+
+// setupTokenHelp tells the operator where the setup token is.
+const setupTokenHelp = "Setup token missing or wrong. It is printed in the spool's console log at start and saved in the setup-token file next to its database."
 
 func (a *AuthMiddleware) RequireAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {

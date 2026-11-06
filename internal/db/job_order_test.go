@@ -78,3 +78,25 @@ func TestListJobsAcceptsAllowedSorts(t *testing.T) {
 		}
 	}
 }
+
+// First-boot setup relies on this: only one caller may create a key.
+func TestCreateSettingIfAbsentNeverOverwrites(t *testing.T) {
+	initShared(t)
+	ctx := context.Background()
+	key := "create_once_" + t.Name()
+	created, err := Settings.CreateSettingIfAbsent(ctx, key, "first", false)
+	if err != nil || !created {
+		t.Fatalf("first create: created=%v err=%v", created, err)
+	}
+	created, err = Settings.CreateSettingIfAbsent(ctx, key, "second", false)
+	if err != nil || created {
+		t.Fatalf("second create: created=%v err=%v, want false", created, err)
+	}
+	s, err := Settings.GetSetting(ctx, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Value != "first" {
+		t.Fatalf("value = %q, want first", s.Value)
+	}
+}

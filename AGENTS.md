@@ -203,9 +203,20 @@ HTMX attributes for real-time updates:
 
 JWT-based authentication with password-only login:
 
-1. First-time setup: `POST /api/auth/setup` with password
-2. Login: `POST /api/auth/login` returns JWT in HttpOnly cookie
+1. First-time setup: `POST /api/auth/setup` with `password` and the one-time
+   `setup_token` the spool prints at start and writes to `setup-token` next to
+   its database. Without the token setup is 403; only one request can win.
+2. Login: `POST /api/auth/login` returns JWT in an HttpOnly, SameSite=Lax cookie
 3. Protected routes require valid JWT
+4. `CrossOriginProtection` (first middleware in `cmd/spool/routes.go`) refuses
+   POST/PUT/PATCH/DELETE whose `Sec-Fetch-Site` or `Origin` shows another
+   origin. Requests with an `Authorization` header are not checked.
+5. ORRN machine tokens reach only `DefaultMachineRoutes`
+   (`internal/api/middleware/auth.go`); any other route is 403 for them. Add a
+   machine route there, or with `AllowMachineRoutes`, only for a call ORRN's
+   `SpoolClient` makes, and keep `cloudflare/index.js` in step.
+6. Job sorting goes through `db.JobOrderClause`; never format request text
+   into SQL.
 
 ## Webhook Events
 

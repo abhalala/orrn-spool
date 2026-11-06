@@ -151,7 +151,13 @@ when preparing a cutover.
 
 ### First-time Setup
 
-1. **Set Password** - On first access, you'll be prompted to create an admin password
+1. **Set Password** - On first access, you'll be prompted to create an admin password.
+   The page also asks for the one-time setup token. The spool prints it in its
+   console log when it starts with no password (`setup: no admin password
+   yet ...`) and writes it to `setup-token` next to its database, readable only
+   by the spool's user. The token stops working once a password is set, and the
+   file is removed. To reset a lost password, delete the `admin_password`
+   setting and restart the spool: it makes a new token.
 2. **Add a Printer** - Navigate to Printers → Add Printer
 3. **Create a Template** - Navigate to Templates → New Template
 4. **Print a Test Job** - Use the test print feature to verify connectivity
@@ -286,6 +292,12 @@ The application uses SQLite for data storage:
 ### Authentication
 
 All API endpoints (except `/health` and `/api/auth/*`) require JWT authentication.
+
+The browser session is an HttpOnly, `SameSite=Lax` cookie. State-changing
+requests (POST, PUT, PATCH, DELETE) that a browser sends from another origin
+are refused with `403`, judged by `Sec-Fetch-Site` and `Origin`. Requests that
+carry an `Authorization` header, and non-browser clients that send neither
+header, are not affected.
 
 ```bash
 # Login

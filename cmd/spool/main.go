@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -70,6 +71,9 @@ func main() {
 	authMiddleware, err := apimw.NewAuthMiddleware(database)
 	if err != nil {
 		log.Fatalf("init auth middleware: %v", err)
+	}
+	if token := authMiddleware.SetupToken(); token != "" {
+		announceSetupToken(authMiddleware, token, filepath.Join(filepath.Dir(cfg.Database.Path), apimw.SetupTokenFile))
 	}
 	if verifier := apimw.NewORRNVerifier(cfg.ORRN.SharedSecret); verifier != nil {
 		authMiddleware.SetORRNVerifier(verifier)
@@ -197,4 +201,20 @@ func main() {
 	if err := server.Shutdown(ctx); err != nil {
 		log.Printf("shutdown error: %v", err)
 	}
+}
+
+// announceSetupToken tells the person at the machine how to claim a fresh
+// spool: the one-time token goes to the console log and to a file readable
+// only by the spool's user. Both stop working once the first password is set.
+func announceSetupToken(auth *apimw.AuthMiddleware, token, path string) {
+	if err := apimw.WriteSetupTokenFile(path, token); err != nil {
+		log.Printf("setup: could not write %s: %v", path, err)
+	} else {
+		auth.OnSetupComplete(func() {
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				log.Printf("setup: could not remove %s: %v", path, err)
+			}
+		})
+	}
+	log.Printf("setup: no admin password yet. Open /login and enter the one-time setup token %s (also saved in %s).", token, path)
 }

@@ -46,7 +46,9 @@ type testSpool struct {
 	auth *apimw.AuthMiddleware
 }
 
-func newTestSpool(t *testing.T) *testSpool {
+// openTestDB opens the package's shared database once (db.Init is a
+// sync.Once as well).
+func openTestDB(t *testing.T) {
 	t.Helper()
 	testDBOnce.Do(func() {
 		dir, err := os.MkdirTemp("", "spool-routes-test")
@@ -59,6 +61,11 @@ func newTestSpool(t *testing.T) *testSpool {
 	if testDBErr != nil {
 		t.Fatal(testDBErr)
 	}
+}
+
+func newTestSpool(t *testing.T) *testSpool {
+	t.Helper()
+	openTestDB(t)
 	database := db.GetDB()
 	auth, err := apimw.NewAuthMiddleware(database)
 	if err != nil {
@@ -119,6 +126,7 @@ func (s *testSpool) machine(method, path string, body []byte) *httptest.Response
 // session do not depend on how first-boot setup works.
 func ensurePassword(t *testing.T) {
 	t.Helper()
+	openTestDB(t)
 	hash, err := bcrypt.GenerateFromPassword([]byte(testAdminPassword), bcrypt.MinCost)
 	if err != nil {
 		t.Fatal(err)
