@@ -158,52 +158,19 @@ func main() {
 	router.LoadHTMLGlob("web/templates/**/*")
 	router.Static("/static", "web/static")
 
-	router.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "version": Version})
+	registerRoutes(router, routeDeps{
+		auth:      authMiddleware,
+		webUI:     webUIHandler,
+		printers:  printerHandler,
+		jobs:      jobHandler,
+		templates: templateHandler,
+		webhooks:  webhookHandler,
+		ai:        aiHandler,
+		archive:   archiveHandler,
+		settings:  settingsHandler,
+		scale:     handlers.NewScaleHandler(scaleService),
+		version:   Version,
 	})
-	router.GET("/login", authMiddleware.LoginPage)
-	router.POST("/login", authMiddleware.LoginForm)
-	router.POST("/logout", authMiddleware.LogoutRedirect)
-
-	authRoutes := router.Group("/api/auth")
-	{
-		authRoutes.POST("/login", authMiddleware.LoginHandler)
-		authRoutes.POST("/logout", authMiddleware.LogoutHandler)
-		authRoutes.GET("/status", authMiddleware.StatusHandler)
-		authRoutes.POST("/setup", authMiddleware.SetupHandler)
-	}
-
-	protectedPages := router.Group("/")
-	protectedPages.Use(authMiddleware.RequirePageAuth())
-	webUIHandler.RegisterPages(protectedPages)
-
-	api := router.Group("/api")
-	api.Use(authMiddleware.RequireAuth())
-	api.Use(webUIHandler.HTMXFragments())
-	{
-		handlers.RegisterTemplateRoutes(api, templateHandler)
-		handlers.RegisterAIRoutes(api, aiHandler)
-		handlers.RegisterWebhookRoutes(api, webhookHandler)
-		handlers.RegisterSettingsRoutes(api, settingsHandler)
-		archiveHandler.RegisterRoutes(api)
-		jobHandler.RegisterRoutes(api)
-		api.GET("/printers", printerHandler.ListPrinters)
-		api.POST("/printers", printerHandler.CreatePrinter)
-		api.GET("/printers/:id", printerHandler.GetPrinter)
-		api.PUT("/printers/:id", printerHandler.UpdatePrinter)
-		api.DELETE("/printers/:id", printerHandler.DeletePrinter)
-		api.GET("/printers/:id/status", printerHandler.GetPrinterStatus)
-		api.POST("/printers/:id/test", printerHandler.TestPrinter)
-		api.POST("/printers/:id/pause", printerHandler.PausePrinter)
-		api.POST("/printers/:id/resume", printerHandler.ResumePrinter)
-		api.GET("/printers/:id/counters", printerHandler.GetPrinterCounters)
-	}
-
-	scaleRoutes := router.Group("/")
-	scaleRoutes.Use(authMiddleware.RequireAuth())
-	handlers.NewScaleHandler(scaleService).RegisterRoutes(scaleRoutes)
-
-	jobHandler.RegisterLegacyRoutes(router)
 
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Server.Port),
